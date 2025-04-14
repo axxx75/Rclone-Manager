@@ -1,0 +1,20 @@
+[Unit]
+Description=RClone Manager
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/opt/Rclone-Manager
+Environment="PATH=/opt/Rclone-Manager/venv/bin"
+ExecStart=/opt/Rclone-Manager/venv/bin/gunicorn \
+ --bind 0.0.0.0:5000 main:app \
+ --access-logfile /opt/Rclone-Manager/data/logs/access.log \
+ --error-logfile /opt/Rclone-Manager/data/logs/error.log
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
