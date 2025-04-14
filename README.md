@@ -56,8 +56,8 @@ The application is very user friendly:
 ![Home page](/img/index.png)
 ![Jobs page](/img/job.png)
 ![History page](/img/history.png)
-![Configuration page](/img/configurations1.png)
-![Configuration page](/img/configurations2.png)
+![Configuration page](/img/configuration1.png)
+![Configuration page](/img/configuration2.png)
 
 ## Configuration
 
