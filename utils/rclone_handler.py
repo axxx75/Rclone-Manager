@@ -99,10 +99,9 @@ class RCloneHandler:
         if dry_run:
             cmd[-1] += " --dry-run"
         
-        # Add other common options
+        # Add log common options
         cmd[-1] += " --log-level INFO"
         cmd[-1] += f" --log-file '{log_file}'"
-        cmd[-1] += " --no-check-certificate"
         
         # Add checksum or size-only based on source/target
         src_remote = source.split(':', 1)[0] if ':' in source else ""
@@ -110,8 +109,8 @@ class RCloneHandler:
         
         if src_remote and tgt_remote:
             # Determine if we can use checksums
-            src_hashes_cmd = f"rclone backend features {src_remote}: --json --no-check-certificate"
-            tgt_hashes_cmd = f"rclone backend features {tgt_remote}: --json --no-check-certificate"
+            src_hashes_cmd = f"rclone backend features {src_remote}: --json "
+            tgt_hashes_cmd = f"rclone backend features {tgt_remote}: --json "
             
             # Log the hash capability check commands
             logger.info(f"Checking source hash capabilities: {src_hashes_cmd}")
@@ -178,7 +177,7 @@ class RCloneHandler:
         cmd[-1] += " --transfers=4 --checkers=8 --retries=10"
         
         # Add user-requested default flags
-        cmd[-1] += " --metadata --use-server-modtime --gcs-bucket-policy-only"
+        cmd[-1] += " --metadata --use-server-modtime --gcs-bucket-policy-only --no-check-certificate --fast-list"
         
         # Log the complete command being executed
         logger.info(f"Executing command: {cmd[-1]}")
