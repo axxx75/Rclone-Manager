@@ -19,25 +19,25 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
   ```
   apt install -y python3-dev libpq-dev gcc python3.12-venv
   ```
-- Prepare enviroment
-  ```
-  python3 -m venv venv
-  source venv/bin/activate
-  ```
-- Install Python dependencies:
-  ```
-  pip3 install tqdm flask flask-sqlalchemy gunicorn psycopg2-binary email-validator
-  ```
 
 ## Installation and start application
 
 1. Clone this repository
   ```
+  cd /opt
   git clone [https://github.com/axxx75/Rclone-Manager/rclone-manager.git](https://github.com/axxx75/Rclone-Manager.git)
   ```
-2. Start Application
+2. Prepare enviroment
   ```
-  cd Rclone-manager
+  python3 -m venv venv
+  source venv/bin/activate
+  ```
+3. Install Python dependencies:
+  ```
+  pip3 install tqdm flask flask-sqlalchemy gunicorn psycopg2-binary email-validator
+  ```
+5. Start Application
+  ```
   python3 main.py
   ```
 
@@ -49,7 +49,7 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
 You can customize default settings by:
 
 1. Customizing /root/.config/rclone/rclone.conf
-3. Modifying config parameters in your own scripts
+2. Modifying config parameters in your own scripts
 
 ## Contributing
 
