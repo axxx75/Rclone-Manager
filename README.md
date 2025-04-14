@@ -36,16 +36,21 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
   ```
   pip3 install tqdm flask flask-sqlalchemy gunicorn psycopg2-binary email-validator
   ```
-5. Start Application
+5. Configure App with service
   ```
-  python3 main.py
+  cp /opt/Rclone-Manager/rclone-manager.service /etc/systemd/system/
+  systemctl daemon-reexec
+  systemctl daemon-reload
+  systemctl enable rclone-dashboard
+  systemctl start rclone-dashboard
   ```
-  or
+  Controlla lo stato
   ```
-  usr/bin/gunicorn --bind 0.0.0.0:5000 main:app
+  systemctl status rclone-dashboard
   ```
 
 ## Usage
+
 
 
 ## Configuration
