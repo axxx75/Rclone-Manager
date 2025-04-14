@@ -11,7 +11,7 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
 ## Requirements
 
 - Python 3.6+
-- Rclone (1.50+ recommended)  [https://rclone.org/install/](Documentation)
+- Rclone (1.50+ recommended)  [Documentation](https://rclone.org/install/)
   ```
   sudo -v ; curl https://rclone.org/install.sh | sudo bash
   ```
