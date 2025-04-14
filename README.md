@@ -29,6 +29,7 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
   ```
 2. Prepare enviroment
   ```
+  cd /opt/Rclone-Manager
   python3 -m venv venv
   source venv/bin/activate
   ```
@@ -51,14 +52,15 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
 
 ## Usage
 
-
+.... add image example for confgigure job clone ...
 
 ## Configuration
 
 You can customize default settings by:
 
 1. Customizing /root/.config/rclone/rclone.conf
-2. Modifying config parameters in your own scripts
+2. Usig Configuration from web interface
+3. Modifying config parameters in your own scripts
 
 ## Contributing
 
@@ -66,4 +68,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT License
+[MIT](https://github.com/axxx75/Rclone-Manager/edit/main/LICENSE)
