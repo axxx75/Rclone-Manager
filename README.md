@@ -68,4 +68,5 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[MIT LICENSE] (https://github.com/axxx75/Rclone-Manager/edit/main/LICENSE)
+[MIT LICENSE](https://github.com/axxx75/Rclone-Manager/edit/main/LICENSE)
+
