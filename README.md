@@ -52,7 +52,12 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
 
 ## Usage
 
-.... add image example for confgigure job clone ...
+The application is very user friendly:
+![Home page](/img/index.png)
+![Jobs page](/img/job.png)
+![History page](/img/history.png)
+![Configuration page](/img/configurations1.png)
+![Configuration page](/img/configurations2.png)
 
 ## Configuration
 
