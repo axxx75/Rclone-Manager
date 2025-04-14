@@ -20,7 +20,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # Initialize database
 db.init_app(app)
 
-# Initialize RClone handler - use current directory for logs in Replit environment
+# Initialize RClone handler 
 RCLONE_CONFIG_PATH = os.environ.get("RCLONE_CONFIG_PATH", "./data/rclone_scheduled.conf")
 LOG_DIR = os.environ.get("RCLONE_LOG_DIR", "./data/logs")
 rclone_handler = RCloneHandler(RCLONE_CONFIG_PATH, LOG_DIR)
