@@ -2,8 +2,9 @@ import os
 import logging
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, flash, url_for, jsonify, send_from_directory
-from models import db, SyncJob, SyncJobHistory
+from models import db, SyncJob, SyncJobHistory, ScheduledJob
 from utils.rclone_handler import RCloneHandler
+from utils.scheduler import JobScheduler
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -30,6 +31,9 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 # Initialize the rclone handler
 rclone_handler = RCloneHandler(RCLONE_CONFIG_PATH, LOG_DIR)
+
+# Initialize job scheduler with the Flask app
+job_scheduler = JobScheduler(rclone_handler, LOG_DIR, app=app)
 
 # Log rclone configuration paths for easy reference
 logger.info("=== RCLONE Configuration Paths ===")
@@ -129,6 +133,10 @@ def force_cleanup_jobs():
 with app.app_context():
     db.create_all()
     check_orphaned_jobs()  # Controllo iniziale all'avvio
+    
+    # Avvia lo scheduler dei job
+    job_scheduler.start()
+    logger.info("Job scheduler started")
 
 
 @app.route("/")
@@ -410,3 +418,202 @@ def save_main_config():
         flash(f"Error saving main configuration: {str(e)}", "danger")
     
     return redirect(url_for("config"))
+
+
+# Routes per la gestione della pianificazione
+
+@app.route("/schedule")
+def schedule():
+    """View and manage scheduled jobs"""
+    scheduled_jobs = job_scheduler.get_schedule_summary()
+    return render_template("schedule.html", scheduled_jobs=scheduled_jobs)
+
+
+@app.route("/create_scheduled_job", methods=["POST"])
+def create_scheduled_job():
+    """Create a new scheduled job"""
+    name = request.form.get("name")
+    source = request.form.get("source")
+    target = request.form.get("target")
+    cron_expression = request.form.get("cron_expression")
+    enabled = request.form.get("enabled") == "1"
+    retry_on_error = request.form.get("retry_on_error") == "1"
+    max_retries = int(request.form.get("max_retries", "0"))
+    
+    if not name or not source or not target or not cron_expression:
+        flash("Tutti i campi sono obbligatori", "danger")
+        return redirect(url_for("schedule"))
+    
+    try:
+        # Valida l'espressione cron
+        from crontab import CronTab
+        try:
+            cron = CronTab(cron_expression)
+            _ = cron.next(default_utc=False)  # Verifica la validità calcolando la prossima esecuzione
+        except Exception as e:
+            flash(f"Espressione cron non valida: {str(e)}", "danger")
+            return redirect(url_for("schedule"))
+        
+        # Crea il job pianificato
+        with app.app_context():
+            scheduled_job = ScheduledJob(
+                name=name,
+                source=source,
+                target=target,
+                cron_expression=cron_expression,
+                enabled=enabled,
+                retry_on_error=retry_on_error,
+                max_retries=max_retries
+            )
+            db.session.add(scheduled_job)
+            db.session.commit()
+            
+            # Calcola il prossimo orario di esecuzione
+            next_run = job_scheduler._calculate_next_run(cron_expression)
+            scheduled_job.next_run = next_run
+            db.session.commit()
+            
+            flash(f"Job pianificato creato con successo. Prossima esecuzione: {next_run}", "success")
+    except Exception as e:
+        logger.error(f"Error creating scheduled job: {str(e)}")
+        flash(f"Error creating scheduled job: {str(e)}", "danger")
+    
+    return redirect(url_for("schedule"))
+
+
+@app.route("/edit_scheduled_job/<int:job_id>")
+def edit_scheduled_job(job_id):
+    """Edit a scheduled job"""
+    job = ScheduledJob.query.get_or_404(job_id)
+    return render_template("edit_schedule.html", job=job)
+
+
+@app.route("/update_scheduled_job/<int:job_id>", methods=["POST"])
+def update_scheduled_job(job_id):
+    """Update a scheduled job"""
+    job = ScheduledJob.query.get_or_404(job_id)
+    
+    name = request.form.get("name")
+    source = request.form.get("source")
+    target = request.form.get("target")
+    cron_expression = request.form.get("cron_expression")
+    enabled = request.form.get("enabled") == "1"
+    retry_on_error = request.form.get("retry_on_error") == "1"
+    max_retries = int(request.form.get("max_retries", "0"))
+    
+    if not name or not source or not target or not cron_expression:
+        flash("Tutti i campi sono obbligatori", "danger")
+        return redirect(url_for("edit_scheduled_job", job_id=job_id))
+    
+    try:
+        # Valida l'espressione cron
+        from crontab import CronTab
+        try:
+            cron = CronTab(cron_expression)
+            _ = cron.next(default_utc=False)  # Verifica la validità calcolando la prossima esecuzione
+        except Exception as e:
+            flash(f"Espressione cron non valida: {str(e)}", "danger")
+            return redirect(url_for("edit_scheduled_job", job_id=job_id))
+        
+        # Aggiorna il job
+        job.name = name
+        job.source = source
+        job.target = target
+        job.cron_expression = cron_expression
+        job.enabled = enabled
+        job.retry_on_error = retry_on_error
+        job.max_retries = max_retries
+        
+        # Ricalcola il prossimo orario di esecuzione
+        job.next_run = job_scheduler._calculate_next_run(cron_expression)
+        
+        db.session.commit()
+        
+        flash("Job pianificato aggiornato con successo", "success")
+    except Exception as e:
+        logger.error(f"Error updating scheduled job: {str(e)}")
+        flash(f"Error updating scheduled job: {str(e)}", "danger")
+    
+    return redirect(url_for("schedule"))
+
+
+@app.route("/toggle_scheduled_job/<int:job_id>", methods=["POST"])
+def toggle_scheduled_job(job_id):
+    """Toggle enabled status for a scheduled job"""
+    job = ScheduledJob.query.get_or_404(job_id)
+    
+    try:
+        # Toggle status
+        job.enabled = not job.enabled
+        
+        # Se è stato attivato, calcola il prossimo orario di esecuzione
+        if job.enabled:
+            job.next_run = job_scheduler._calculate_next_run(job.cron_expression)
+        else:
+            job.next_run = None
+        
+        db.session.commit()
+        
+        if job.enabled:
+            flash(f"Job pianificato '{job.name}' attivato", "success")
+        else:
+            flash(f"Job pianificato '{job.name}' disattivato", "info")
+    except Exception as e:
+        logger.error(f"Error toggling scheduled job: {str(e)}")
+        flash(f"Error: {str(e)}", "danger")
+    
+    return redirect(url_for("schedule"))
+
+
+@app.route("/delete_scheduled_job/<int:job_id>", methods=["POST"])
+def delete_scheduled_job(job_id):
+    """Delete a scheduled job"""
+    job = ScheduledJob.query.get_or_404(job_id)
+    
+    try:
+        name = job.name
+        db.session.delete(job)
+        db.session.commit()
+        flash(f"Job pianificato '{name}' eliminato", "success")
+    except Exception as e:
+        logger.error(f"Error deleting scheduled job: {str(e)}")
+        flash(f"Error deleting scheduled job: {str(e)}", "danger")
+    
+    return redirect(url_for("schedule"))
+
+
+@app.route("/run_scheduled_job_now/<int:job_id>", methods=["POST"])
+def run_scheduled_job_now(job_id):
+    """Run a scheduled job immediately"""
+    job = ScheduledJob.query.get_or_404(job_id)
+    
+    try:
+        # Check if source/target already has a running job
+        if rclone_handler.is_job_running(job.source, job.target):
+            flash(f"Impossibile avviare il job: {job.source} → {job.target} ha già un job in esecuzione", "warning")
+            return redirect(url_for("schedule"))
+        
+        # Run the job
+        job_info = rclone_handler.run_custom_job(job.source, job.target, dry_run=False)
+        
+        # Create history entry
+        history = SyncJobHistory(
+            source=job.source,
+            target=job.target,
+            status="running",
+            dry_run=False,
+            start_time=datetime.now(),
+            log_file=job_info.get("log_file")
+        )
+        db.session.add(history)
+        
+        # Update last run time
+        job.last_run = datetime.now()
+        db.session.commit()
+        
+        flash(f"Job pianificato '{job.name}' avviato manualmente", "success")
+    except Exception as e:
+        logger.error(f"Error running scheduled job now: {str(e)}")
+        flash(f"Error running job: {str(e)}", "danger")
+    
+    return redirect(url_for("schedule"))
