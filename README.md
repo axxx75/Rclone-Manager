@@ -41,12 +41,12 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
   cp /opt/Rclone-Manager/rclone-manager.service /etc/systemd/system/
   systemctl daemon-reexec
   systemctl daemon-reload
-  systemctl enable rclone-dashboard
-  systemctl start rclone-dashboard
+  systemctl enable rclone-manager
+  systemctl start rclone-manager
   ```
   Controlla lo stato
   ```
-  systemctl status rclone-dashboard
+  systemctl status rclone-manager
   ```
 
 ## Usage
