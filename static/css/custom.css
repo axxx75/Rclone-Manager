@@ -1,0 +1,85 @@
+/* Custom styles for rclone manager */
+
+/* Code blocks in tables */
+td code, th code {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 300px;
+    display: inline-block;
+}
+
+/* Pre blocks for log display */
+pre {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9rem;
+    background-color: var(--bs-dark);
+    color: var(--bs-light);
+    border-radius: 0.25rem;
+}
+
+/* Custom scrollbar for pre elements */
+pre::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+pre::-webkit-scrollbar-track {
+    background: var(--bs-dark);
+}
+
+pre::-webkit-scrollbar-thumb {
+    background-color: var(--bs-secondary);
+    border-radius: 6px;
+    border: 3px solid var(--bs-dark);
+}
+
+/* Footer styles */
+.footer {
+    margin-top: 2rem;
+    padding: 1rem 0;
+    background-color: var(--bs-dark);
+    color: var(--bs-light);
+}
+
+/* Job status indicators */
+.status-running {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+/* Improve form controls readability */
+.form-control, .form-select {
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    border-color: var(--bs-gray-600);
+}
+
+.form-control:focus, .form-select:focus {
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+}
+
+/* Better spacing for card-based layouts */
+.card {
+    margin-bottom: 1.5rem;
+}
+
+/* Improve table readability */
+.table {
+    --bs-table-striped-bg: rgba(255, 255, 255, 0.05);
+}
+
+/* Responsive table for small screens */
+@media (max-width: 768px) {
+    .table-responsive {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+    }
+}

@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card mb-4">
+    <div class="card-header bg-primary">
+        <h2 class="mb-0">
+            <i class="fas fa-tachometer-alt"></i> Dashboard
+        </h2>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-play"></i> Quick Actions</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-grid gap-3">
+                            <a href="{{ url_for('jobs') }}" class="btn btn-outline-primary">
+                                <i class="fas fa-plus-circle"></i> New Sync Job
+                            </a>
+                            <a href="{{ url_for('jobs') }}" class="btn btn-outline-secondary">
+                                <i class="fas fa-list"></i> View Configured Jobs
+                            </a>
+                            <a href="{{ url_for('history') }}" class="btn btn-outline-info">
+                                <i class="fas fa-history"></i> View History
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-info-circle"></i> System Information</h5>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Config File:</strong> <code>{{ rclone_handler.config_path }}</code></p>
+                        <p><strong>Log Directory:</strong> <code>{{ rclone_handler.log_dir }}</code></p>
+                        <p><strong>Active Jobs:</strong> {{ active_jobs|length }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Active Jobs -->
+<div class="card">
+    <div class="card-header bg-info text-white">
+        <h3 class="mb-0">
+            <i class="fas fa-sync fa-spin"></i> Active Jobs
+        </h3>
+    </div>
+    <div class="card-body">
+        {% if active_jobs %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Source</th>
+                            <th>Target</th>
+                            <th>Started</th>
+                            <th>Duration</th>
+                            <th>Dry Run</th>
+                            <th>Log</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for job in active_jobs %}
+                        <tr>
+                            <td><code>{{ job.source }}</code></td>
+                            <td><code>{{ job.target }}</code></td>
+                            <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                            <td>
+                                {% if job.duration < 60 %}
+                                    {{ "%.1f"|format(job.duration) }}s
+                                {% elif job.duration < 3600 %}
+                                    {{ "%.1f"|format(job.duration/60) }}m
+                                {% else %}
+                                    {{ "%.1f"|format(job.duration/3600) }}h
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if job.dry_run %}
+                                    <span class="badge bg-warning">Dry Run</span>
+                                {% else %}
+                                    <span class="badge bg-success">Live</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group">
+                                    <button class="btn btn-sm btn-info view-log" data-log-file="{{ job.log_file }}">
+                                        <i class="fas fa-file-alt"></i> View Log
+                                    </button>
+                                    <form action="{{ url_for('cancel_job', job_id=-1) }}" method="post" class="d-inline cancel-form">
+                                        <input type="hidden" name="source" value="{{ job.source }}">
+                                        <input type="hidden" name="target" value="{{ job.target }}">
+                                        <button type="submit" class="btn btn-sm btn-danger" 
+                                                onclick="return confirm('Sei sicuro di voler annullare questo job?');">
+                                            <i class="fas fa-times-circle"></i> Cancel
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i> No active jobs at the moment.
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Log Modal -->
+<div class="modal fade" id="logModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Job Log</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="logContent" class="bg-dark text-light p-3" style="max-height: 70vh; overflow-y: auto;"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-info" id="refreshLogBtn">
+                    <i class="fas fa-sync"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const logModal = new bootstrap.Modal(document.getElementById('logModal'));
+        let currentLogFile = null;
+        let refreshInterval = null;
+        
+        // Handle view log buttons
+        document.querySelectorAll('.view-log').forEach(button => {
+            button.addEventListener('click', function() {
+                const logFile = this.getAttribute('data-log-file');
+                currentLogFile = logFile;
+                const logContent = document.getElementById('logContent');
+                
+                // Show modal with loading message
+                logContent.textContent = 'Loading log...';
+                logModal.show();
+                
+                // Format the log file path to get just the filename for the logs endpoint
+                fetchLogContent(logFile);
+            });
+        });
+        
+        // Refresh log button
+        document.getElementById('refreshLogBtn').addEventListener('click', function() {
+            if (currentLogFile) {
+                fetchLogContent(currentLogFile);
+            }
+        });
+        
+        // Handle cancel job forms
+        document.querySelectorAll('.cancel-form').forEach(form => {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const source = this.querySelector('input[name="source"]').value;
+                const target = this.querySelector('input[name="target"]').value;
+                
+                // Find job in database
+                fetch('/history')
+                    .then(response => response.text())
+                    .then(html => {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, 'text/html');
+                        
+                        // Find the job ID for this source/target combination
+                        let jobId = null;
+                        doc.querySelectorAll('.job-row').forEach(row => {
+                            const rowSource = row.querySelector('td:nth-child(2) code').textContent;
+                            const rowTarget = row.querySelector('td:nth-child(3) code').textContent;
+                            const rowStatus = row.querySelector('.job-status .badge').textContent.trim();
+                            
+                            if (rowSource === source && rowTarget === target && rowStatus === 'Running') {
+                                jobId = row.getAttribute('data-job-id');
+                            }
+                        });
+                        
+                        if (jobId) {
+                            // Submit to the correct endpoint
+                            const finalUrl = `/cancel_job/${jobId}`;
+                            const finalForm = document.createElement('form');
+                            finalForm.method = 'post';
+                            finalForm.action = finalUrl;
+                            document.body.appendChild(finalForm);
+                            finalForm.submit();
+                        } else {
+                            alert('Job non trovato nella cronologia o non è in stato "running"');
+                            window.location.reload();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error finding job ID:', error);
+                        alert('Errore durante la ricerca del job');
+                    });
+            });
+        });
+        
+        // Fetch log content function
+        function fetchLogContent(logFile) {
+            // Format the log file path to get just the filename for the logs endpoint
+            const logFileName = logFile.split('/').pop();
+            
+            // Fetch log content using the log_file endpoint
+            fetch(`/logs/${logFileName}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to load log file');
+                    }
+                    return response.text();
+                })
+                .then(data => {
+                    document.getElementById('logContent').textContent = data;
+                })
+                .catch(error => {
+                    document.getElementById('logContent').textContent = `Error loading log: ${error.message}`;
+                });
+        }
+        
+        // Set up auto-refresh for log content
+        document.getElementById('logModal').addEventListener('shown.bs.modal', function() {
+            // Start periodically refreshing the log
+            refreshInterval = setInterval(() => {
+                if (currentLogFile) {
+                    fetchLogContent(currentLogFile);
+                }
+            }, 5000); // Update every 5 seconds
+        });
+        
+        document.getElementById('logModal').addEventListener('hidden.bs.modal', function() {
+            // Stop refreshing when modal is closed
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+            currentLogFile = null;
+        });
+        
+        // Auto-refresh the active jobs list
+        setInterval(() => {
+            // Only reload if there are active jobs
+            if (document.querySelector('.table tbody tr')) {
+                window.location.reload();
+            }
+        }, 30000); // Refresh every 30 seconds
+    });
+</script>
+{% endblock %}
+

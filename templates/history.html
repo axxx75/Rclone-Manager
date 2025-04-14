@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+        <h3 class="mb-0">
+            <i class="fas fa-history"></i> Job History
+        </h3>
+        <form action="/force_cleanup" method="post">
+            <button type="submit" class="btn btn-warning btn-sm" onclick="return confirm('Sei sicuro di voler forzare la pulizia di tutti i job in stato running?');">
+                <i class="fas fa-broom"></i> Forza pulizia dei job
+            </button>
+        </form>
+    </div>
+    <div class="card-body">
+        {% if job_history %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Source</th>
+                            <th>Target</th>
+                            <th>Started</th>
+                            <th>Status</th>
+                            <th>Duration</th>
+                            <th>Mode</th>
+                            <th>Log</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for job in job_history %}
+                        <tr class="job-row {% if job.status == 'running' %}table-info{% elif job.status == 'completed' %}table-success{% elif job.status == 'error' %}table-danger{% endif %}" data-job-id="{{ job.id }}">
+                            <td>{{ job.id }}</td>
+                            <td><code>{{ job.source }}</code></td>
+                            <td><code>{{ job.target }}</code></td>
+                            <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                            <td class="job-status">
+                                {% if job.status == 'running' %}
+                                    <span class="badge bg-info">Running</span>
+                                {% elif job.status == 'completed' %}
+                                    <span class="badge bg-success">Completed</span>
+                                {% elif job.status == 'error' %}
+                                    <span class="badge bg-danger">Error</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ job.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="job-duration">{{ job.duration_formatted }}</td>
+                            <td>
+                                {% if job.dry_run %}
+                                    <span class="badge bg-warning">Dry Run</span>
+                                {% else %}
+                                    <span class="badge bg-success">Live</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group">
+                                    <button class="btn btn-sm btn-info view-log" data-job-id="{{ job.id }}">
+                                        <i class="fas fa-file-alt"></i> View Log
+                                    </button>
+                                    {% if job.status == 'running' %}
+                                    <form action="{{ url_for('cancel_job', job_id=job.id) }}" method="post" class="d-inline">
+                                        <button type="submit" class="btn btn-sm btn-danger" 
+                                                onclick="return confirm('Sei sicuro di voler annullare questo job?');">
+                                            <i class="fas fa-times-circle"></i> Cancel
+                                        </button>
+                                    </form>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i> No job history found.
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Log Modal -->
+<div class="modal fade" id="logModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Job Log</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="logContent" class="bg-dark text-light p-3" style="max-height: 70vh; overflow-y: auto;"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-info" id="refreshLogBtn">
+                    <i class="fas fa-sync"></i> Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const logModal = new bootstrap.Modal(document.getElementById('logModal'));
+        let currentJobId = null;
+        let refreshInterval = null;
+        
+        // Handle view log buttons
+        document.querySelectorAll('.view-log').forEach(button => {
+            button.addEventListener('click', function() {
+                const jobId = this.getAttribute('data-job-id');
+                currentJobId = jobId;
+                const logContent = document.getElementById('logContent');
+                
+                // Show modal with loading message
+                logContent.textContent = 'Loading log...';
+                logModal.show();
+                
+                // Fetch log content
+                fetchLogContent(jobId);
+            });
+        });
+        
+        // Refresh log button
+        document.getElementById('refreshLogBtn').addEventListener('click', function() {
+            if (currentJobId) {
+                fetchLogContent(currentJobId);
+            }
+        });
+        
+        // Fetch log content function
+        function fetchLogContent(jobId) {
+            fetch(`/job_log/${jobId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to load log content');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    document.getElementById('logContent').textContent = data.log;
+                })
+                .catch(error => {
+                    document.getElementById('logContent').textContent = `Error loading log: ${error.message}`;
+                });
+        }
+        
+        // Modal events for auto-refresh
+        document.getElementById('logModal').addEventListener('shown.bs.modal', function () {
+            // Set up periodic refresh for running jobs
+            if (currentJobId) {
+                refreshInterval = setInterval(() => {
+                    const jobRow = document.querySelector(`.job-row[data-job-id="${currentJobId}"]`);
+                    const jobStatus = jobRow.querySelector('.job-status .badge');
+                    
+                    if (jobStatus && jobStatus.textContent === 'Running') {
+                        fetchLogContent(currentJobId);
+                    } else {
+                        // Job is not running, stop refreshing
+                        clearInterval(refreshInterval);
+                    }
+                }, 5000); // Refresh every 5 seconds
+            }
+        });
+        
+        document.getElementById('logModal').addEventListener('hidden.bs.modal', function () {
+            // Clear refresh interval when modal is closed
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+            currentJobId = null;
+        });
+        
+        // Auto-update job status for running jobs
+        setInterval(() => {
+            document.querySelectorAll('.job-row').forEach(row => {
+                const jobId = row.getAttribute('data-job-id');
+                const statusBadge = row.querySelector('.job-status .badge');
+                const durationCell = row.querySelector('.job-duration');
+                
+                if (statusBadge && statusBadge.textContent === 'Running') {
+                    // Update job status
+                    fetch(`/job_status/${jobId}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status !== 'running') {
+                                // Job status changed, reload page to refresh
+                                window.location.reload();
+                            } else {
+                                // Update duration in real-time
+                                const startTimeStr = row.querySelector('td:nth-child(4)').textContent.trim();
+                                const startTime = new Date(startTimeStr);
+                                const now = new Date();
+                                const durationSecs = (now - startTime) / 1000;
+                                
+                                let formattedDuration;
+                                if (durationSecs < 60) {
+                                    formattedDuration = durationSecs.toFixed(1) + 's';
+                                } else if (durationSecs < 3600) {
+                                    formattedDuration = (durationSecs / 60).toFixed(1) + 'm';
+                                } else {
+                                    formattedDuration = (durationSecs / 3600).toFixed(1) + 'h';
+                                }
+                                
+                                durationCell.textContent = formattedDuration;
+                            }
+                        })
+                        .catch(error => console.error('Error updating job status:', error));
+                }
+            });
+        }, 10000); // Update every 10 seconds
+    });
+</script>
+{% endblock %}
+

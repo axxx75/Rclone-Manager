@@ -1,0 +1,4 @@
+2025/04/14 15:07:08 ERROR : S3 bucket rndk0-prod-001-strg: error reading destination root directory: operation error S3: ListObjects, exceeded maximum number of attempts, 10, https response error StatusCode: 0, RequestID: , HostID: , request send failed, Get "https://ecs.intesasanpaolo.com:9021/rndk0-prod-001-strg?delimiter=%2F&max-keys=1000&prefix=": URLBlocked
+2025/04/14 15:07:08 ERROR : S3 bucket rndk0-prod-001-strg: not deleting files as there were IO errors
+2025/04/14 15:07:08 ERROR : S3 bucket rndk0-prod-001-strg: not deleting directories as there were IO errors
+2025/04/14 15:07:08 ERROR : Attempt 1/10 failed with 1 errors and: operation error S3: ListObjects, exceeded maximum number of attempts, 10, https response error StatusCode: 0, RequestID: , HostID: , request send failed, Get "https://ecs.intesasanpaolo.com:9021/rndk0-prod-001-strg?delimiter=%2F&max-keys=1000&prefix=": URLBlocked
