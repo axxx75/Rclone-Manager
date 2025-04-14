@@ -40,6 +40,10 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
   ```
   python3 main.py
   ```
+  or
+  ```
+  usr/bin/gunicorn --bind 0.0.0.0:5000 main:app
+  ```
 
 ## Usage
 
