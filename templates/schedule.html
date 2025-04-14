@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}Pianificazione Job{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Pianificazione Job</h1>
+    
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Aggiungi Nuovo Job Pianificato</h5>
+        </div>
+        <div class="card-body">
+            <form action="{{ url_for('create_scheduled_job') }}" method="post">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="name" class="form-label">Nome</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="cron_expression" class="form-label">Espressione Cron</label>
+                        <input type="text" class="form-control" id="cron_expression" name="cron_expression" 
+                               placeholder="*/30 * * * *" required>
+                        <small class="text-muted">Formato: minuto ora giorno_mese mese giorno_settimana</small>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="source" class="form-label">Sorgente</label>
+                        <input type="text" class="form-control" id="source" name="source" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="target" class="form-label">Destinazione</label>
+                        <input type="text" class="form-control" id="target" name="target" required>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="1" id="enabled" name="enabled" checked>
+                            <label class="form-check-label" for="enabled">
+                                Abilitato
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="1" id="retry_on_error" name="retry_on_error">
+                            <label class="form-check-label" for="retry_on_error">
+                                Riprova in caso di errore
+                            </label>
+                        </div>
+                        <div class="mb-3">
+                            <label for="max_retries" class="form-label">Numero massimo tentativi</label>
+                            <input type="number" class="form-control" id="max_retries" name="max_retries" value="0" min="0">
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Salva Job Pianificato</button>
+            </form>
+        </div>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Esempi di Espressioni Cron</h5>
+        </div>
+        <div class="card-body">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Espressione</th>
+                        <th>Descrizione</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>*/30 * * * *</code></td>
+                        <td>Ogni 30 minuti</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 * * * *</code></td>
+                        <td>Ogni ora (al minuto 0)</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 */2 * * *</code></td>
+                        <td>Ogni 2 ore</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 8 * * *</code></td>
+                        <td>Alle 8:00 ogni giorno</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 8,17 * * *</code></td>
+                        <td>Alle 8:00 e alle 17:00 ogni giorno</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 0 * * 0</code></td>
+                        <td>A mezzanotte ogni domenica</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 0 1 * *</code></td>
+                        <td>A mezzanotte il primo giorno di ogni mese</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Job Pianificati</h5>
+            <button id="refreshScheduleBtn" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-clockwise"></i> Aggiorna
+            </button>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th scope="col">ID</th>
+                            <th scope="col">Nome</th>
+                            <th scope="col">Sorgente</th>
+                            <th scope="col">Destinazione</th>
+                            <th scope="col">Espressione Cron</th>
+                            <th scope="col">Ultimo Avvio</th>
+                            <th scope="col">Prossimo Avvio</th>
+                            <th scope="col">Stato</th>
+                            <th scope="col">Azioni</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for job in scheduled_jobs %}
+                        <tr>
+                            <td>{{ job.id }}</td>
+                            <td>{{ job.name }}</td>
+                            <td class="text-truncate" style="max-width: 150px;" title="{{ job.source }}">{{ job.source }}</td>
+                            <td class="text-truncate" style="max-width: 150px;" title="{{ job.target }}">{{ job.target }}</td>
+                            <td><code>{{ job.cron }}</code></td>
+                            <td>
+                                {% if job.last_run %}
+                                    {{ job.last_run.strftime('%Y-%m-%d %H:%M') }}
+                                {% else %}
+                                    Mai eseguito
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if job.next_run and job.enabled %}
+                                    {{ job.next_run.strftime('%Y-%m-%d %H:%M') }}
+                                    {% if job.time_left %}
+                                        <span class="badge bg-info">{{ job.time_left }}</span>
+                                    {% endif %}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if job.enabled %}
+                                    <span class="badge bg-success">Attivo</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Disabilitato</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <a href="{{ url_for('edit_scheduled_job', job_id=job.id) }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    <form action="{{ url_for('toggle_scheduled_job', job_id=job.id) }}" method="post" class="d-inline">
+                                        <button type="submit" class="btn btn-sm btn-outline-warning">
+                                            {% if job.enabled %}
+                                                <i class="bi bi-pause-fill"></i>
+                                            {% else %}
+                                                <i class="bi bi-play-fill"></i>
+                                            {% endif %}
+                                        </button>
+                                    </form>
+                                    <form action="{{ url_for('run_scheduled_job_now', job_id=job.id) }}" method="post" class="d-inline">
+                                        <button type="submit" class="btn btn-sm btn-outline-success">
+                                            <i class="bi bi-arrow-right-circle"></i>
+                                        </button>
+                                    </form>
+                                    <form action="{{ url_for('delete_scheduled_job', job_id=job.id) }}" method="post" class="d-inline" 
+                                          onsubmit="return confirm('Sei sicuro di voler eliminare questo job pianificato?');">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="9" class="text-center">Nessun job pianificato configurato</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Gestione aggiornamento tabella
+        const refreshBtn = document.getElementById('refreshScheduleBtn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', function() {
+                window.location.reload();
+            });
+        }
+    });
+</script>
+{% endblock %}
