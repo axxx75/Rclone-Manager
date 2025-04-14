@@ -4,6 +4,25 @@ from flask_sqlalchemy import SQLAlchemy
 db = SQLAlchemy()
 
 
+class ScheduledJob(db.Model):
+    """Model for scheduled sync jobs"""
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    source = db.Column(db.String(255), nullable=False)
+    target = db.Column(db.String(255), nullable=False)
+    cron_expression = db.Column(db.String(100), nullable=False)  # Espressione cron (minuto, ora, giorno, mese, giorno settimana)
+    enabled = db.Column(db.Boolean, default=True)
+    last_run = db.Column(db.DateTime, nullable=True)
+    next_run = db.Column(db.DateTime, nullable=True)
+    retry_on_error = db.Column(db.Boolean, default=False)
+    max_retries = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    def __repr__(self):
+        return f"<ScheduledJob {self.name}>"
+
+
 class SyncJob(db.Model):
     """Model for configured sync jobs"""
     id = db.Column(db.Integer, primary_key=True)
@@ -54,4 +73,3 @@ class SyncJobHistory(db.Model):
             return f"{seconds/60:.1f}m"
         else:
             return f"{seconds/3600:.1f}h"
-
