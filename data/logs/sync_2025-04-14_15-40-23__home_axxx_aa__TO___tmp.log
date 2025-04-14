@@ -1,0 +1,56 @@
+2025/04/14 15:40:24 NOTICE: .iprt-localipc-DRMIpcServer: Can't transfer non file/directory
+2025/04/14 15:40:24 ERROR : Local file system at /home/axxx/aa: error reading source root directory: directory not found
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting files as there were IO errors
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting directories as there were IO errors
+2025/04/14 15:40:24 ERROR : Attempt 1/10 failed with 1 errors and: directory not found
+2025/04/14 15:40:24 NOTICE: .iprt-localipc-DRMIpcServer: Can't transfer non file/directory
+2025/04/14 15:40:24 ERROR : Local file system at /home/axxx/aa: error reading source root directory: directory not found
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting files as there were IO errors
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting directories as there were IO errors
+2025/04/14 15:40:24 ERROR : Attempt 2/10 failed with 1 errors and: directory not found
+2025/04/14 15:40:24 NOTICE: .iprt-localipc-DRMIpcServer: Can't transfer non file/directory
+2025/04/14 15:40:24 ERROR : Local file system at /home/axxx/aa: error reading source root directory: directory not found
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting files as there were IO errors
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting directories as there were IO errors
+2025/04/14 15:40:24 ERROR : Attempt 3/10 failed with 1 errors and: directory not found
+2025/04/14 15:40:24 NOTICE: .iprt-localipc-DRMIpcServer: Can't transfer non file/directory
+2025/04/14 15:40:24 ERROR : Local file system at /home/axxx/aa: error reading source root directory: directory not found
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting files as there were IO errors
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting directories as there were IO errors
+2025/04/14 15:40:24 ERROR : Attempt 4/10 failed with 1 errors and: directory not found
+2025/04/14 15:40:24 NOTICE: .iprt-localipc-DRMIpcServer: Can't transfer non file/directory
+2025/04/14 15:40:24 ERROR : Local file system at /home/axxx/aa: error reading source root directory: directory not found
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting files as there were IO errors
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting directories as there were IO errors
+2025/04/14 15:40:24 ERROR : Attempt 5/10 failed with 1 errors and: directory not found
+2025/04/14 15:40:24 NOTICE: .iprt-localipc-DRMIpcServer: Can't transfer non file/directory
+2025/04/14 15:40:24 ERROR : Local file system at /home/axxx/aa: error reading source root directory: directory not found
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting files as there were IO errors
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting directories as there were IO errors
+2025/04/14 15:40:24 ERROR : Attempt 6/10 failed with 1 errors and: directory not found
+2025/04/14 15:40:24 NOTICE: .iprt-localipc-DRMIpcServer: Can't transfer non file/directory
+2025/04/14 15:40:24 ERROR : Local file system at /home/axxx/aa: error reading source root directory: directory not found
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting files as there were IO errors
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting directories as there were IO errors
+2025/04/14 15:40:24 ERROR : Attempt 7/10 failed with 1 errors and: directory not found
+2025/04/14 15:40:24 NOTICE: .iprt-localipc-DRMIpcServer: Can't transfer non file/directory
+2025/04/14 15:40:24 ERROR : Local file system at /home/axxx/aa: error reading source root directory: directory not found
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting files as there were IO errors
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting directories as there were IO errors
+2025/04/14 15:40:24 ERROR : Attempt 8/10 failed with 1 errors and: directory not found
+2025/04/14 15:40:24 NOTICE: .iprt-localipc-DRMIpcServer: Can't transfer non file/directory
+2025/04/14 15:40:24 ERROR : Local file system at /home/axxx/aa: error reading source root directory: directory not found
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting files as there were IO errors
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting directories as there were IO errors
+2025/04/14 15:40:24 ERROR : Attempt 9/10 failed with 1 errors and: directory not found
+2025/04/14 15:40:24 NOTICE: .iprt-localipc-DRMIpcServer: Can't transfer non file/directory
+2025/04/14 15:40:24 ERROR : Local file system at /home/axxx/aa: error reading source root directory: directory not found
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting files as there were IO errors
+2025/04/14 15:40:24 ERROR : Local file system at /tmp: not deleting directories as there were IO errors
+2025/04/14 15:40:24 ERROR : Attempt 10/10 failed with 1 errors and: directory not found
+2025/04/14 15:40:24 NOTICE: 
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Errors:                 1 (retrying may help)
+Elapsed time:         0.1s
+
+2025/04/14 15:40:24 NOTICE: Failed to sync: directory not found

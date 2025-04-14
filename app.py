@@ -23,7 +23,20 @@ db.init_app(app)
 # Initialize RClone handler - use current directory for logs in Replit environment
 RCLONE_CONFIG_PATH = os.environ.get("RCLONE_CONFIG_PATH", "./data/rclone_scheduled.conf")
 LOG_DIR = os.environ.get("RCLONE_LOG_DIR", "./data/logs")
+
+# Create necessary directories
+os.makedirs(os.path.dirname(RCLONE_CONFIG_PATH), exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# Initialize the rclone handler
 rclone_handler = RCloneHandler(RCLONE_CONFIG_PATH, LOG_DIR)
+
+# Log rclone configuration paths for easy reference
+logger.info("=== RCLONE Configuration Paths ===")
+logger.info(f"Jobs Config: {RCLONE_CONFIG_PATH}")
+logger.info(f"Main Config: {rclone_handler.main_config_path}")
+logger.info(f"Log Directory: {LOG_DIR}")
+logger.info("==================================")
 
 # Add template context processors
 @app.context_processor
@@ -397,4 +410,3 @@ def save_main_config():
         flash(f"Error saving main configuration: {str(e)}", "danger")
     
     return redirect(url_for("config"))
-

@@ -113,12 +113,17 @@ class RCloneHandler:
             src_hashes_cmd = f"rclone backend features {src_remote}: --json --no-check-certificate"
             tgt_hashes_cmd = f"rclone backend features {tgt_remote}: --json --no-check-certificate"
             
+            # Log the hash capability check commands
+            logger.info(f"Checking source hash capabilities: {src_hashes_cmd}")
+            logger.info(f"Checking target hash capabilities: {tgt_hashes_cmd}")
+            
             try:
                 # Crea un ambiente senza variabili proxy
                 my_env = os.environ.copy()
                 for proxy_var in ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY']:
                     if proxy_var in my_env:
                         del my_env[proxy_var]
+                        logger.info(f"Unset proxy variable for hash check: {proxy_var}")
                 
                 # Utilizzare Popen invece di run per maggiore compatibilità con versioni Python più vecchie
                 src_process = subprocess.Popen(
@@ -172,11 +177,18 @@ class RCloneHandler:
         # Add other common options
         cmd[-1] += " --transfers=4 --checkers=8 --retries=10"
         
+        # Add user-requested default flags
+        cmd[-1] += " --metadata --use-server-modtime --gcs-bucket-policy-only"
+        
+        # Log the complete command being executed
+        logger.info(f"Executing command: {cmd[-1]}")
+        
         # Crea un ambiente senza variabili proxy
         my_env = os.environ.copy()
         for proxy_var in ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY']:
             if proxy_var in my_env:
                 del my_env[proxy_var]
+                logger.info(f"Unset proxy variable: {proxy_var}")
         
         # Start process with clean environment
         process = subprocess.Popen(
@@ -368,3 +380,4 @@ class RCloneHandler:
         except Exception as e:
             logger.error(f"Error saving main config file: {str(e)}")
             raise
+
