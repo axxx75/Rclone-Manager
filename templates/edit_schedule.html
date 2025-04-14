@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}Modifica Job Pianificato{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Modifica Job Pianificato</h1>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Modifica Job #{{ job.id }}</h5>
+        </div>
+        <div class="card-body">
+            <form action="{{ url_for('update_scheduled_job', job_id=job.id) }}" method="post">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="name" class="form-label">Nome</label>
+                        <input type="text" class="form-control" id="name" name="name" value="{{ job.name }}" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="cron_expression" class="form-label">Espressione Cron</label>
+                        <input type="text" class="form-control" id="cron_expression" name="cron_expression" 
+                               value="{{ job.cron_expression }}" required>
+                        <small class="text-muted">Formato: minuto ora giorno_mese mese giorno_settimana</small>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="source" class="form-label">Sorgente</label>
+                        <input type="text" class="form-control" id="source" name="source" value="{{ job.source }}" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="target" class="form-label">Destinazione</label>
+                        <input type="text" class="form-control" id="target" name="target" value="{{ job.target }}" required>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="1" id="enabled" name="enabled" {% if job.enabled %}checked{% endif %}>
+                            <label class="form-check-label" for="enabled">
+                                Abilitato
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="1" id="retry_on_error" name="retry_on_error" {% if job.retry_on_error %}checked{% endif %}>
+                            <label class="form-check-label" for="retry_on_error">
+                                Riprova in caso di errore
+                            </label>
+                        </div>
+                        <div class="mb-3">
+                            <label for="max_retries" class="form-label">Numero massimo tentativi</label>
+                            <input type="number" class="form-control" id="max_retries" name="max_retries" value="{{ job.max_retries }}" min="0">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Ultimo avvio</label>
+                        <p>
+                            {% if job.last_run %}
+                                {{ job.last_run.strftime('%Y-%m-%d %H:%M:%S') }}
+                            {% else %}
+                                Mai eseguito
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Prossimo avvio</label>
+                        <p>
+                            {% if job.next_run %}
+                                {{ job.next_run.strftime('%Y-%m-%d %H:%M:%S') }}
+                            {% else %}
+                                Non programmato
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Aggiorna Job</button>
+                <a href="{{ url_for('schedule') }}" class="btn btn-secondary">Annulla</a>
+            </form>
+        </div>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Esempi di Espressioni Cron</h5>
+        </div>
+        <div class="card-body">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Espressione</th>
+                        <th>Descrizione</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>*/30 * * * *</code></td>
+                        <td>Ogni 30 minuti</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 * * * *</code></td>
+                        <td>Ogni ora (al minuto 0)</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 */2 * * *</code></td>
+                        <td>Ogni 2 ore</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 8 * * *</code></td>
+                        <td>Alle 8:00 ogni giorno</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 8,17 * * *</code></td>
+                        <td>Alle 8:00 e alle 17:00 ogni giorno</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 0 * * 0</code></td>
+                        <td>A mezzanotte ogni domenica</td>
+                    </tr>
+                    <tr>
+                        <td><code>0 0 1 * *</code></td>
+                        <td>A mezzanotte il primo giorno di ogni mese</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
