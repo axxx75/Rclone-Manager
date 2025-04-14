@@ -20,7 +20,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # Initialize database
 db.init_app(app)
 
-# Initialize RClone handler 
+# Initialize RClone handler - use current directory for logs in Replit environment
 RCLONE_CONFIG_PATH = os.environ.get("RCLONE_CONFIG_PATH", "./data/rclone_scheduled.conf")
 LOG_DIR = os.environ.get("RCLONE_LOG_DIR", "./data/logs")
 rclone_handler = RCloneHandler(RCLONE_CONFIG_PATH, LOG_DIR)
@@ -355,7 +355,10 @@ def cancel_job(job_id):
 def config():
     """View and edit rclone configuration"""
     config_content = rclone_handler.read_config_file()
-    return render_template("config.html", config_content=config_content)
+    main_config_content = rclone_handler.read_main_config_file()
+    return render_template("config.html", 
+                          config_content=config_content,
+                          main_config_content=main_config_content)
 
 
 @app.route("/save_config", methods=["POST"])
@@ -375,3 +378,23 @@ def save_config():
         flash(f"Error saving configuration: {str(e)}", "danger")
     
     return redirect(url_for("config"))
+
+
+@app.route("/save_main_config", methods=["POST"])
+def save_main_config():
+    """Save changes to main rclone configuration file"""
+    config_content = request.form.get("main_config_content")
+    
+    if not config_content:
+        flash("No configuration provided", "danger")
+        return redirect(url_for("config"))
+    
+    try:
+        rclone_handler.save_main_config_file(config_content)
+        flash("Main configuration file saved successfully", "success")
+    except Exception as e:
+        logger.error(f"Error saving main configuration: {str(e)}")
+        flash(f"Error saving main configuration: {str(e)}", "danger")
+    
+    return redirect(url_for("config"))
+

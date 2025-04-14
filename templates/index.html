@@ -25,6 +25,9 @@
                             <a href="{{ url_for('history') }}" class="btn btn-outline-info">
                                 <i class="fas fa-history"></i> View History
                             </a>
+                            <a href="{{ url_for('config') }}" class="btn btn-outline-success">
+                                <i class="fas fa-cog"></i> Configuration
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -35,7 +38,8 @@
                         <h5 class="mb-0"><i class="fas fa-info-circle"></i> System Information</h5>
                     </div>
                     <div class="card-body">
-                        <p><strong>Config File:</strong> <code>{{ rclone_handler.config_path }}</code></p>
+                        <p><strong>Config Job File:</strong> <code>{{ rclone_handler.config_path }}</code></p>
+                        <p><strong>RClone Config File:</strong> <code>{{ rclone_handler.main_config_path }}</code></p>
                         <p><strong>Log Directory:</strong> <code>{{ rclone_handler.log_dir }}</code></p>
                         <p><strong>Active Jobs:</strong> {{ active_jobs|length }}</p>
                     </div>
@@ -96,7 +100,7 @@
                                     <form action="{{ url_for('cancel_job', job_id=-1) }}" method="post" class="d-inline cancel-form">
                                         <input type="hidden" name="source" value="{{ job.source }}">
                                         <input type="hidden" name="target" value="{{ job.target }}">
-                                        <button type="submit" class="btn btn-sm btn-danger" 
+                                        <button type="submit" class="btn btn-sm btn-danger"
                                                 onclick="return confirm('Sei sicuro di voler annullare questo job?');">
                                             <i class="fas fa-times-circle"></i> Cancel
                                         </button>
@@ -144,56 +148,56 @@
         const logModal = new bootstrap.Modal(document.getElementById('logModal'));
         let currentLogFile = null;
         let refreshInterval = null;
-        
+
         // Handle view log buttons
         document.querySelectorAll('.view-log').forEach(button => {
             button.addEventListener('click', function() {
                 const logFile = this.getAttribute('data-log-file');
                 currentLogFile = logFile;
                 const logContent = document.getElementById('logContent');
-                
+
                 // Show modal with loading message
                 logContent.textContent = 'Loading log...';
                 logModal.show();
-                
+
                 // Format the log file path to get just the filename for the logs endpoint
                 fetchLogContent(logFile);
             });
         });
-        
+
         // Refresh log button
         document.getElementById('refreshLogBtn').addEventListener('click', function() {
             if (currentLogFile) {
                 fetchLogContent(currentLogFile);
             }
         });
-        
+
         // Handle cancel job forms
         document.querySelectorAll('.cancel-form').forEach(form => {
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
                 const source = this.querySelector('input[name="source"]').value;
                 const target = this.querySelector('input[name="target"]').value;
-                
+
                 // Find job in database
                 fetch('/history')
                     .then(response => response.text())
                     .then(html => {
                         const parser = new DOMParser();
                         const doc = parser.parseFromString(html, 'text/html');
-                        
+
                         // Find the job ID for this source/target combination
                         let jobId = null;
                         doc.querySelectorAll('.job-row').forEach(row => {
                             const rowSource = row.querySelector('td:nth-child(2) code').textContent;
                             const rowTarget = row.querySelector('td:nth-child(3) code').textContent;
                             const rowStatus = row.querySelector('.job-status .badge').textContent.trim();
-                            
+
                             if (rowSource === source && rowTarget === target && rowStatus === 'Running') {
                                 jobId = row.getAttribute('data-job-id');
                             }
                         });
-                        
+
                         if (jobId) {
                             // Submit to the correct endpoint
                             const finalUrl = `/cancel_job/${jobId}`;
@@ -213,12 +217,12 @@
                     });
             });
         });
-        
+
         // Fetch log content function
         function fetchLogContent(logFile) {
             // Format the log file path to get just the filename for the logs endpoint
             const logFileName = logFile.split('/').pop();
-            
+
             // Fetch log content using the log_file endpoint
             fetch(`/logs/${logFileName}`)
                 .then(response => {
@@ -234,7 +238,7 @@
                     document.getElementById('logContent').textContent = `Error loading log: ${error.message}`;
                 });
         }
-        
+
         // Set up auto-refresh for log content
         document.getElementById('logModal').addEventListener('shown.bs.modal', function() {
             // Start periodically refreshing the log
@@ -244,7 +248,7 @@
                 }
             }, 5000); // Update every 5 seconds
         });
-        
+
         document.getElementById('logModal').addEventListener('hidden.bs.modal', function() {
             // Stop refreshing when modal is closed
             if (refreshInterval) {
@@ -253,7 +257,7 @@
             }
             currentLogFile = null;
         });
-        
+
         // Auto-refresh the active jobs list
         setInterval(() => {
             // Only reload if there are active jobs
@@ -264,4 +268,3 @@
     });
 </script>
 {% endblock %}
-

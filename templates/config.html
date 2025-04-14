@@ -30,6 +30,34 @@
 </div>
 
 <div class="card mt-4">
+    <div class="card-header bg-success text-white">
+        <h3 class="mb-0">
+            <i class="fas fa-file-code"></i> Main RClone Configuration File
+        </h3>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> Edit the main rclone configuration file. This file defines your remotes.
+        </div>
+        
+        <div class="alert alert-warning">
+            <i class="fas fa-exclamation-triangle"></i> Path: <code>/root/.config/rclone/rclone.conf</code>
+        </div>
+        
+        <form action="{{ url_for('save_main_config') }}" method="post">
+            <div class="mb-3">
+                <textarea class="form-control font-monospace" id="main_config_content" name="main_config_content" rows="20">{{ main_config_content }}</textarea>
+            </div>
+            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                <button type="submit" class="btn btn-success">
+                    <i class="fas fa-save"></i> Save Main Configuration
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mt-4">
     <div class="card-header bg-info text-white">
         <h3 class="mb-0">
             <i class="fas fa-question-circle"></i> Configuration Help

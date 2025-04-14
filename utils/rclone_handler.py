@@ -22,6 +22,7 @@ class RCloneHandler:
         self.config_path = config_path
         self.log_dir = log_dir
         self.active_jobs = {}
+        self.main_config_path = "/root/.config/rclone/rclone.conf"
         
         # Create log directory if it doesn't exist
         os.makedirs(self.log_dir, exist_ok=True)
@@ -102,7 +103,6 @@ class RCloneHandler:
         cmd[-1] += " --log-level INFO"
         cmd[-1] += f" --log-file '{log_file}'"
         cmd[-1] += " --no-check-certificate"
-        cmd[-1] += " --gcs-bucket-policy-only"
         
         # Add checksum or size-only based on source/target
         src_remote = source.split(':', 1)[0] if ':' in source else ""
@@ -110,8 +110,8 @@ class RCloneHandler:
         
         if src_remote and tgt_remote:
             # Determine if we can use checksums
-            src_hashes_cmd = f"rclone backend features {src_remote}: --json --no-check-certificate --gcs-bucket-policy-only"
-            tgt_hashes_cmd = f"rclone backend features {tgt_remote}: --json --no-check-certificaten --gcs-bucket-policy-only"
+            src_hashes_cmd = f"rclone backend features {src_remote}: --json --no-check-certificate"
+            tgt_hashes_cmd = f"rclone backend features {tgt_remote}: --json --no-check-certificate"
             
             try:
                 # Crea un ambiente senza variabili proxy
@@ -328,4 +328,43 @@ class RCloneHandler:
             logger.error(f"Error reading log directory: {str(e)}")
         
         return logs
-
+        
+    def read_main_config_file(self):
+        """Read the main rclone config file content"""
+        try:
+            # Check if file exists
+            if not os.path.exists(self.main_config_path):
+                logger.warning(f"Main config file not found: {self.main_config_path}")
+                return "# Config file not found"
+            
+            # Read file content
+            with open(self.main_config_path, 'r') as f:
+                content = f.read()
+            return content
+        except Exception as e:
+            logger.error(f"Error reading main config file: {str(e)}")
+            return f"# Error reading file: {str(e)}"
+    
+    def save_main_config_file(self, content):
+        """Save changes to the main rclone config file"""
+        try:
+            # Create parent directory if needed
+            os.makedirs(os.path.dirname(self.main_config_path), exist_ok=True)
+            
+            # Backup the original file before overwrite
+            if os.path.exists(self.main_config_path):
+                backup_path = f"{self.main_config_path}.bak"
+                with open(self.main_config_path, 'r') as src:
+                    with open(backup_path, 'w') as dst:
+                        dst.write(src.read())
+                logger.info(f"Backup created: {backup_path}")
+            
+            # Write the new content
+            with open(self.main_config_path, 'w') as f:
+                f.write(content)
+            
+            logger.info(f"Main config file updated: {self.main_config_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving main config file: {str(e)}")
+            raise
