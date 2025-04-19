@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block title %}Impostazioni - RClone Manager{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4"><i class="fas fa-cog me-2"></i>Impostazioni</h2>
+    
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <i class="fas fa-bell me-2"></i>Notifiche
+        </div>
+        <div class="card-body">
+            <form method="post">
+                <div class="form-check mb-3">
+                    <input type="checkbox" class="form-check-input" id="notifications_enabled" name="notifications_enabled" {% if settings.notifications_enabled %}checked{% endif %}>
+                    <label class="form-check-label" for="notifications_enabled">Abilita notifiche del browser</label>
+                    <div class="form-text text-muted">
+                        Ricevi notifiche quando i job iniziano o terminano.
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="test_notification">
+                        <i class="fas fa-bell me-1"></i>Prova notifica
+                    </button>
+                    <div class="form-text text-muted">
+                        Potresti dover concedere i permessi per le notifiche nel browser.
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save me-1"></i>Salva impostazioni
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Bottone per testare la notifica
+        const testButton = document.getElementById('test_notification');
+        if (testButton) {
+            testButton.addEventListener('click', function() {
+                // Verifica prima se le notifiche sono supportate
+                if ("Notification" in window) {
+                    // Richiedi il permesso se non è già stato concesso
+                    if (Notification.permission !== "granted") {
+                        Notification.requestPermission().then(function(permission) {
+                            if (permission === "granted") {
+                                sendTestNotification();
+                            }
+                        });
+                    } else {
+                        sendTestNotification();
+                    }
+                } else {
+                    alert("Il tuo browser non supporta le notifiche desktop");
+                }
+            });
+        }
+        
+        function sendTestNotification() {
+            const notification = new Notification("Test Notifica RClone Manager", {
+                body: "Questa è una notifica di test. Se puoi vederla, le notifiche funzionano correttamente!",
+                icon: "/static/img/logo.png"
+            });
+            
+            // Chiudi automaticamente dopo 5 secondi
+            setTimeout(function() { notification.close(); }, 5000);
+        }
+    });
+</script>
+{% endblock %}

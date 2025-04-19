@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+
+{% block title %}Ricerca nei log - RClone Manager{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4"><i class="fas fa-search me-2"></i>Ricerca nei log</h2>
+    
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <div class="d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-filter me-2"></i>Filtri di ricerca</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <form method="get" action="{{ url_for('search_logs') }}" id="searchForm">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label for="search_text" class="form-label">Testo da cercare</label>
+                        <input type="text" class="form-control" id="search_text" name="search_text" 
+                               value="{{ filters.search_text }}" placeholder="Inserisci testo da cercare...">
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="date_from" class="form-label">Data da</label>
+                        <input type="date" class="form-control" id="date_from" name="date_from" 
+                               value="{{ filters.date_from }}">
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="date_to" class="form-label">Data a</label>
+                        <input type="date" class="form-control" id="date_to" name="date_to" 
+                               value="{{ filters.date_to }}">
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="context_lines" class="form-label">Linee di contesto</label>
+                        <select class="form-select" id="context_lines" name="context_lines">
+                            <option value="0" {% if filters.context_lines == 0 %}selected{% endif %}>Nessuna</option>
+                            <option value="2" {% if filters.context_lines == 2 %}selected{% endif %}>2 linee</option>
+                            <option value="5" {% if filters.context_lines == 5 %}selected{% endif %}>5 linee</option>
+                            <option value="10" {% if filters.context_lines == 10 %}selected{% endif %}>10 linee</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="max_results" class="form-label">Massimo risultati</label>
+                        <select class="form-select" id="max_results" name="max_results">
+                            <option value="100" {% if filters.max_results == 100 %}selected{% endif %}>100</option>
+                            <option value="500" {% if filters.max_results == 500 %}selected{% endif %}>500</option>
+                            <option value="1000" {% if filters.max_results == 1000 %}selected{% endif %}>1000</option>
+                            <option value="5000" {% if filters.max_results == 5000 %}selected{% endif %}>5000</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="case_sensitive" class="form-label">Opzioni</label>
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="case_sensitive" name="case_sensitive" 
+                                   {% if filters.case_sensitive %}checked{% endif %}>
+                            <label class="form-check-label" for="case_sensitive">
+                                Maiuscole/minuscole
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-search me-1"></i>Cerca
+                    </button>
+                    <a href="{{ url_for('search_logs') }}" class="btn btn-outline-secondary ms-2">
+                        <i class="fas fa-undo me-1"></i>Reset
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    {% if results %}
+    <div class="card">
+        <div class="card-header bg-light">
+            <div class="d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-list me-2"></i>Risultati della ricerca</span>
+                <span class="badge bg-secondary">{{ results|length }} trovati</span>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="search-results">
+                {% for result in results %}
+                <div class="search-result-item p-3 border-bottom">
+                    <div class="d-flex justify-content-between">
+                        <h5 class="mb-2">
+                            <a href="{{ url_for('view_log', job_id=result.job_id) }}" class="text-decoration-none">
+                                <i class="fas fa-file-alt me-2"></i>{{ result.filename }}
+                            </a>
+                        </h5>
+                        <small class="text-muted">{{ result.date }}</small>
+                    </div>
+                    
+                    <div class="log-content p-3 rounded" style="background-color: #212529;">
+                        <pre class="mb-0"><code style="color: #e9ecef;">{{ result.content|safe }}</code></pre>
+                    </div>
+                    
+                    <div class="mt-2">
+                        <a href="{{ url_for('history') }}?id={{ result.job_id }}" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-history me-1"></i>Vedi job
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            
+            {% if results|length >= filters.max_results %}
+            <div class="alert alert-warning m-3">
+                <i class="fas fa-exclamation-triangle me-2"></i>È stato raggiunto il limite massimo di risultati ({{ filters.max_results }}). Affina la tua ricerca per vedere tutti i risultati.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% elif searched %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i>Nessun risultato trovato per i criteri di ricerca specificati.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Highlight del testo cercato
+        const searchText = '{{ filters.search_text|default("") }}';
+        
+        if (searchText && searchText.length > 0) {
+            const codeElements = document.querySelectorAll('.log-content code');
+            
+            codeElements.forEach(element => {
+                if (!element.innerHTML.includes('<mark>')) {
+                    // Solo se non è già stato evidenziato dal server
+                    const isCaseSensitive = {{ 'true' if filters.case_sensitive else 'false' }};
+                    const flags = isCaseSensitive ? 'g' : 'gi';
+                    const regex = new RegExp(escapeRegExp(searchText), flags);
+                    
+                    element.innerHTML = element.innerHTML.replace(
+                        regex, 
+                        match => `<mark class="bg-warning text-dark">${match}</mark>`
+                    );
+                }
+            });
+        }
+        
+        // Funzione per escape dei caratteri speciali nelle regex
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+    });
+</script>
+{% endblock %}

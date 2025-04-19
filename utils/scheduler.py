@@ -71,8 +71,12 @@ class JobScheduler:
                         if job.next_run is None or job.next_run <= current_time:
                             logger.info(f"Scheduled job {job.id} ({job.name}) is due for execution")
                             
+                            # Puliamo eventuali spazi extra nei percorsi
+                            source = job.source.strip()
+                            target = job.target.strip()
+                            
                             # Verifica se c'è già un job in esecuzione con gli stessi source/target
-                            if self._check_if_running(job.source, job.target):
+                            if self._check_if_running(source, target):
                                 logger.warning(f"Skipping job {job.id}: source/target already has a running job")
                                 # Calcola il prossimo orario di esecuzione ma non eseguire ora
                                 job.next_run = self._calculate_next_run(job.cron_expression, current_time)
@@ -81,16 +85,19 @@ class JobScheduler:
                             
                             # Esegui il job
                             try:
-                                job_info = self.rclone_handler.run_custom_job(job.source, job.target, dry_run=False)
+                                logger.info(f"Executing scheduled job {job.id} ({job.name}): {source} → {target}")
+                                
+                                # Esegui il job - questo aggiunge anche il job al dizionario active_jobs dell'handler
+                                job_info = self.rclone_handler.run_custom_job(source, target, dry_run=False)
                                 
                                 # Aggiorna il timestamp dell'ultimo avvio
                                 job.last_run = current_time
                                 job.next_run = self._calculate_next_run(job.cron_expression, current_time)
                                 
-                                # Crea entry nella history
+                                # Crea entry nella history (usando i valori ripuliti)
                                 history = SyncJobHistory(
-                                    source=job.source,
-                                    target=job.target,
+                                    source=source,  # Usa i valori ripuliti
+                                    target=target,  # Usa i valori ripuliti
                                     status="running",
                                     dry_run=False,
                                     start_time=current_time,
@@ -98,7 +105,19 @@ class JobScheduler:
                                 )
                                 db.session.add(history)
                                 
-                                logger.info(f"Executed scheduled job {job.id} ({job.name}), next run at {job.next_run}")
+                                # Registra i dettagli per il debug
+                                logger.info(f"Scheduled job {job.id} started successfully:")
+                                logger.info(f"  - Lock file: {job_info.get('lock_file')}")
+                                logger.info(f"  - Log file: {job_info.get('log_file')}")
+                                logger.info(f"  - Process PID: {job_info.get('process').pid}")
+                                logger.info(f"  - Next run scheduled at: {job.next_run}")
+                                
+                                # Notifica l'avvio del job
+                                try:
+                                    from utils.notification_manager import notify_job_started
+                                    notify_job_started(history.id, source, target, is_scheduled=True, dry_run=False)
+                                except Exception as e:
+                                    logger.error(f"Failed to send notification for job start: {str(e)}")
                             except Exception as e:
                                 logger.error(f"Error executing scheduled job {job.id}: {str(e)}")
                                 # Aggiorna comunque i timestamp per ritentare alla prossima esecuzione
@@ -127,13 +146,20 @@ class JobScheduler:
     def _check_if_running(self, source, target):
         """Verifica se un job con lo stesso source e target è in esecuzione"""
         # Controlla tramite l'handler rclone
-        if self.rclone_handler.is_job_running(source, target):
-            return True
+        job_running = self.rclone_handler.is_job_running(source, target)
         
         # Controlla anche il file di lock
         tag = f"{source.replace(':', '_').replace('/', '_')}__TO__{target.replace(':', '_').replace('/', '_')}"
         lock_file = f"{self.log_dir}/sync_{tag}.lock"
-        return os.path.exists(lock_file)
+        lock_exists = os.path.exists(lock_file)
+        
+        # Log dettagliato per diagnosi
+        if job_running or lock_exists:
+            logger.info(f"Job already running check for {source} → {target}: " +
+                       f"rclone_handler.is_job_running={job_running}, " +
+                       f"lock_file_exists={lock_exists}, lock_path={lock_file}")
+        
+        return job_running or lock_exists
     
     def _calculate_next_run(self, cron_expression, from_time=None):
         """Calcola il prossimo orario di esecuzione da un'espressione cron"""

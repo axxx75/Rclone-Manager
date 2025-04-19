@@ -164,11 +164,13 @@
                             </td>
                             <td>
                                 <div class="btn-group" role="group">
-                                    <a href="{{ url_for('edit_scheduled_job', job_id=job.id) }}" class="btn btn-sm btn-outline-primary">
+                                    <a href="{{ url_for('edit_scheduled_job', job_id=job.id) }}" class="btn btn-sm btn-outline-primary" 
+                                       data-bs-toggle="tooltip" title="Modifica job">
                                         <i class="bi bi-pencil"></i>
                                     </a>
                                     <form action="{{ url_for('toggle_scheduled_job', job_id=job.id) }}" method="post" class="d-inline">
-                                        <button type="submit" class="btn btn-sm btn-outline-warning">
+                                        <button type="submit" class="btn btn-sm btn-outline-warning"
+                                                data-bs-toggle="tooltip" title="{% if job.enabled %}Disabilita job{% else %}Abilita job{% endif %}">
                                             {% if job.enabled %}
                                                 <i class="bi bi-pause-fill"></i>
                                             {% else %}
@@ -177,13 +179,15 @@
                                         </button>
                                     </form>
                                     <form action="{{ url_for('run_scheduled_job_now', job_id=job.id) }}" method="post" class="d-inline">
-                                        <button type="submit" class="btn btn-sm btn-outline-success">
+                                        <button type="submit" class="btn btn-sm btn-outline-success"
+                                                data-bs-toggle="tooltip" title="Esegui adesso">
                                             <i class="bi bi-arrow-right-circle"></i>
                                         </button>
                                     </form>
                                     <form action="{{ url_for('delete_scheduled_job', job_id=job.id) }}" method="post" class="d-inline" 
                                           onsubmit="return confirm('Sei sicuro di voler eliminare questo job pianificato?');">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                data-bs-toggle="tooltip" title="Elimina job">
                                             <i class="bi bi-trash"></i>
                                         </button>
                                     </form>
@@ -213,6 +217,15 @@
                 window.location.reload();
             });
         }
+        
+        // Inizializza tutti i tooltip
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl, {
+                placement: 'top',
+                boundary: 'window'
+            });
+        });
     });
 </script>
 {% endblock %}

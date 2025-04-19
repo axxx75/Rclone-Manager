@@ -1,7 +1,57 @@
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
+import json
 
 db = SQLAlchemy()
+
+
+class UserSettings(db.Model):
+    """Model for user settings"""
+    id = db.Column(db.Integer, primary_key=True)
+    notifications_enabled = db.Column(db.Boolean, default=True)
+    settings_json = db.Column(db.Text, default='{}')
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    @property
+    def settings(self):
+        """Get settings as dictionary"""
+        try:
+            return json.loads(self.settings_json)
+        except Exception:
+            return {}
+    
+    @settings.setter
+    def settings(self, value):
+        """Set settings from dictionary"""
+        self.settings_json = json.dumps(value)
+    
+    def __repr__(self):
+        return f"<UserSettings {self.id}>"
+
+
+class Notification(db.Model):
+    """Model for notification messages"""
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    level = db.Column(db.String(50), default="info")  # info, success, warning, error
+    read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    
+    def to_dict(self):
+        """Convert to dictionary for API"""
+        return {
+            "id": self.id,
+            "title": self.title,
+            "message": self.message,
+            "level": self.level,
+            "read": self.read,
+            "created_at": self.created_at.strftime('%Y-%m-%d %H:%M:%S')
+        }
+    
+    def __repr__(self):
+        return f"<Notification {self.id}>"
 
 
 class ScheduledJob(db.Model):
@@ -73,3 +123,4 @@ class SyncJobHistory(db.Model):
             return f"{seconds/60:.1f}m"
         else:
             return f"{seconds/3600:.1f}h"
+

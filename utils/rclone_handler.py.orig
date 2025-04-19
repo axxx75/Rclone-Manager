@@ -26,90 +26,6 @@ class RCloneHandler:
         
         # Create log directory if it doesn't exist
         os.makedirs(self.log_dir, exist_ok=True)
-        
-    def _generate_tag(self, source, target):
-        """Generate a consistent tag for source and target paths
-        
-        Replaces special characters that could cause issues in filenames.
-        Preserves important remote and path information for better recognition.
-        """
-        # Funzione per sanitizzare i percorsi preservando le informazioni essenziali
-        def sanitize_path(path):
-            # Conserva la struttura remoto:percorso se presente
-            if ':' in path:
-                parts = path.split(':', 1)
-                remote = parts[0]  # La parte del remoto
-                path_part = parts[1]  # La parte del percorso
-                
-                # Rimuovi i prefissi comuni come '/', '//', 'http://', etc.
-                path_part = path_part.lstrip('/')
-                if path_part.startswith('http'):
-                    path_part = path_part.replace('http://', '').replace('https://', '')
-                
-                # Sostituisci i caratteri problematici nel percorso
-                replacements = {
-                    '/': '-',
-                    ' ': '_',
-                    '\\': '-',
-                    '?': '_',
-                    '*': '_',
-                    '|': '_',
-                    '<': '_',
-                    '>': '_',
-                    '"': '',
-                    '\'': '',
-                    '`': '',
-                    '&': '_',
-                    ';': '_'
-                }
-                
-                # Applica le sostituzioni solo alla parte del percorso
-                for char, replacement in replacements.items():
-                    path_part = path_part.replace(char, replacement)
-                
-                # Rimuovi underscore e trattini multipli consecutivi
-                while '__' in path_part:
-                    path_part = path_part.replace('__', '_')
-                while '--' in path_part:
-                    path_part = path_part.replace('--', '-')
-                
-                # Ricostruisci il path con il formato originale
-                result = f"{remote}:{path_part}"
-            else:
-                # Se non c'è un remoto, sanitizza tutto il percorso
-                replacements = {
-                    ':': '-',
-                    '/': '-',
-                    ' ': '_',
-                    '\\': '-',
-                    '?': '_',
-                    '*': '_',
-                    '|': '_',
-                    '<': '_',
-                    '>': '_',
-                    '"': '',
-                    '\'': '',
-                    '`': '',
-                    '&': '_',
-                    ';': '_'
-                }
-                
-                result = path
-                for char, replacement in replacements.items():
-                    result = result.replace(char, replacement)
-            
-            # Rimuovi eventuali caratteri di controllo o non stampabili
-            import re
-            result = re.sub(r'[\x00-\x1F\x7F]', '', result)
-            
-            return result
-        
-        # Sanitizza source e target
-        source_tag = sanitize_path(source)
-        target_tag = sanitize_path(target)
-        
-        # Crea il tag finale per il nome del file
-        return f"{source_tag}_TO_{target_tag}"
     
     def get_configured_jobs(self):
         """Get list of jobs from configuration file"""
@@ -168,28 +84,13 @@ class RCloneHandler:
     def run_custom_job(self, source, target, dry_run=False):
         """Run a custom job with source and target"""
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        tag = self._generate_tag(source, target)
+        tag = f"{source.replace(':', '_').replace('/', '_')}__TO__{target.replace(':', '_').replace('/', '_')}"
         log_file = f"{self.log_dir}/sync_{timestamp}_{tag}.log"
         
         # Check if a job with the same source and target is already running
         lock_file = f"{self.log_dir}/sync_{tag}.lock"
-        
-        # Se esiste un lock file, verifichiamo quanto è vecchio
-        # e rimuoviamolo se è più vecchio di 1 ora (possibile lock file orfano)
         if os.path.exists(lock_file):
-            # Verifica l'età del file
-            file_age = time.time() - os.path.getmtime(lock_file)
-            
-            # Se il file è più vecchio di 1 ora (3600 secondi), potrebbe essere orfano
-            if file_age > 3600:
-                try:
-                    os.remove(lock_file)
-                    logger.info(f"Rimosso lock file stale: {lock_file} (età: {file_age:.1f}s)")
-                except Exception as e:
-                    logger.error(f"Errore durante la rimozione del lock file stale: {str(e)}")
-            else:
-                # Il file esiste ed è recente, segnaliamo che il job è già in esecuzione
-                raise Exception(f"A job with the same source and target is already running: {source} → {target}")
+            raise Exception(f"A job with the same source and target is already running: {source} → {target}")
         
         # Prepare command
         cmd = ["/bin/bash", "-c", f"rclone sync '{source}' '{target}' --progress --stats=15s"]
@@ -302,8 +203,6 @@ class RCloneHandler:
         with open(lock_file, 'w') as f:
             f.write(str(process.pid))
         
-        logger.info(f"Created lock file: {lock_file} for PID {process.pid}")
-        
         # Store job info
         job_info = {
             'source': source,
@@ -317,7 +216,6 @@ class RCloneHandler:
         
         job_key = f"{source}|{target}"
         self.active_jobs[job_key] = job_info
-        logger.info(f"Added job to active_jobs dictionary: {job_key}")
         
         # Start a thread to monitor the job
         Thread(target=self._monitor_job, args=(job_key,), daemon=True).start()
@@ -348,11 +246,7 @@ class RCloneHandler:
         
         # Remove lock file
         if os.path.exists(job['lock_file']):
-            try:
-                os.remove(job['lock_file'])
-                logger.info(f"Removed lock file: {job['lock_file']}")
-            except Exception as e:
-                logger.error(f"Failed to remove lock file {job['lock_file']}: {str(e)}")
+            os.remove(job['lock_file'])
         
         # Update job info with end time and status
         job['end_time'] = datetime.now()
@@ -365,15 +259,10 @@ class RCloneHandler:
         # Remove from active jobs after a delay
         time.sleep(60)  # Keep in active jobs list for 1 minute after completion
         if job_key in self.active_jobs:
-            logger.info(f"Removing job from active_jobs: {job_key}")
             del self.active_jobs[job_key]
     
-    def get_active_jobs(self, include_db_jobs=True):
-        """Get list of currently active jobs
-        
-        Args:
-            include_db_jobs: Se True, include anche i job segnati come running nel database
-        """
+    def get_active_jobs(self):
+        """Get list of currently active jobs"""
         # Clean up any dead jobs
         job_keys = list(self.active_jobs.keys())
         for job_key in job_keys:
@@ -383,7 +272,7 @@ class RCloneHandler:
                 if not os.path.exists(job['lock_file']):
                     del self.active_jobs[job_key]
         
-        # Crea una lista di job attivi dal dizionario self.active_jobs
+        # Return active jobs
         active_jobs = []
         for job_key, job in self.active_jobs.items():
             active_jobs.append({
@@ -395,117 +284,22 @@ class RCloneHandler:
                 'duration': (datetime.now() - job['start_time']).total_seconds()
             })
         
-        # Se richiesto, aggiungi anche i job segnati come running nel database
-        if include_db_jobs:
-            try:
-                # Importiamo qui per evitare dipendenze circolari
-                from flask import current_app
-                with current_app.app_context():
-                    from models import SyncJobHistory, db
-                    
-                    # Ottieni tutti i job in stato "running" dal database
-                    running_jobs = SyncJobHistory.query.filter_by(status="running").all()
-                    
-                    for db_job in running_jobs:
-                        # Verifica se il job è già presente nella lista
-                        job_key = f"{db_job.source}|{db_job.target}"
-                        if job_key not in self.active_jobs:
-                            # Verifica se il file di lock esiste ancora
-                            tag = self._generate_tag(db_job.source, db_job.target)
-                            lock_file = f"{self.log_dir}/sync_{tag}.lock"
-                            
-                            if os.path.exists(lock_file):
-                                # Il job è ancora in esecuzione
-                                job_exists = False
-                                for job in active_jobs:
-                                    if job['source'] == db_job.source and job['target'] == db_job.target:
-                                        job_exists = True
-                                        break
-                                
-                                if not job_exists:
-                                    # Aggiungi alla lista dei job attivi
-                                    active_jobs.append({
-                                        'source': db_job.source,
-                                        'target': db_job.target,
-                                        'dry_run': db_job.dry_run,
-                                        'log_file': db_job.log_file,
-                                        'start_time': db_job.start_time,
-                                        'duration': (datetime.now() - db_job.start_time).total_seconds(),
-                                        'from_scheduler': True  # Flag per identificare i job avviati dallo scheduler
-                                    })
-                            else:
-                                # Il file di lock non esiste più, aggiorniamo lo stato del job
-                                db_job.status = "completed"
-                                if not db_job.end_time:  # Se end_time non è già impostato
-                                    db_job.end_time = datetime.now()
-                                db.session.commit()
-            except Exception as e:
-                logger.error(f"Error getting database running jobs: {str(e)}")
-        
         return active_jobs
     
     def is_job_running(self, source, target):
-        """Check if a job with the given source and target is running
-        
-        - Controlla se il job è nei job attivi dell'handler
-        - Verifica l'esistenza del file di lock (e la sua validità)
-        - Controlla nel database se presente
-        """
+        """Check if a job with the given source and target is running"""
         job_key = f"{source}|{target}"
         
-        # Verifica nei job attivi nell'handler
         if job_key in self.active_jobs:
             job = self.active_jobs[job_key]
             if job['process'].poll() is None:
                 # Process is still running
                 return True
         
-        # Verifica l'esistenza del file di lock
-        tag = self._generate_tag(source, target)
+        # Also check for lock file
+        tag = f"{source.replace(':', '_').replace('/', '_')}__TO__{target.replace(':', '_').replace('/', '_')}"
         lock_file = f"{self.log_dir}/sync_{tag}.lock"
-        if os.path.exists(lock_file):
-            # Verifica se il lock file è stale (più vecchio di 1 ora)
-            file_age = time.time() - os.path.getmtime(lock_file)
-            
-            if file_age > 3600:  # Se è più vecchio di 1 ora, non è un job in esecuzione
-                try:
-                    # Rimuovi il lock file stale
-                    os.remove(lock_file)
-                    logger.info(f"Rimosso lock file stale durante il controllo job: {lock_file} (età: {file_age:.1f}s)")
-                    return False  # Il job non è in esecuzione
-                except Exception as e:
-                    logger.error(f"Errore durante la rimozione del lock file stale: {str(e)}")
-                    # In caso di errore nella rimozione, assumiamo che il job sia ancora in esecuzione
-                    return True
-            else:
-                # Il lock file esiste ed è recente, il job è in esecuzione
-                return True
-            
-        # Verifica anche nel database se c'è un job attivo
-        try:
-            from flask import current_app
-            
-            try:
-                app_context = current_app.app_context()
-            except RuntimeError:
-                # Se non siamo in un contesto Flask, ritorna il risultato basato solo sui file di lock
-                return False
-                
-            with app_context:
-                from models import SyncJobHistory
-                
-                # Cerca job attivi con lo stesso source/target
-                running_jobs = SyncJobHistory.query.filter_by(
-                    source=source,
-                    target=target,
-                    status="running"
-                ).all()
-                
-                return len(running_jobs) > 0
-        except Exception as e:
-            logger.error(f"Error checking database for running jobs: {str(e)}")
-            # In caso di errore, basati solo sul file di lock
-            return False
+        return os.path.exists(lock_file)
     
     def get_recent_logs(self, limit=10):
         """Get recent log files"""
@@ -527,21 +321,9 @@ class RCloneHandler:
                 file_path = os.path.join(self.log_dir, log_file)
                 
                 # Parse source and target from filename
-                # Prima prova il nuovo pattern (con i : preservati)
-                match = re.search(r'sync_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_(.+?)_TO_(.+?)\.log$', log_file)
-                
-                if match:
-                    source = match.group(1)  # Il source è già nel formato originale
-                    target = match.group(2)  # Il target è già nel formato originale
-                else:
-                    # Prova il vecchio pattern
-                    match = re.search(r'sync_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_(.+?)__TO__(.+?)\.log$', log_file)
-                    if match:
-                        source = match.group(1).replace('_', ':').replace('-', '/') 
-                        target = match.group(2).replace('_', ':').replace('-', '/')
-                    else:
-                        source = "Unknown"
-                        target = "Unknown"
+                match = re.search(r'sync_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_(.+?)__TO__(.+?)\.log$', log_file)
+                source = match.group(1).replace('_', ':').replace('-', '/') if match else "Unknown"
+                target = match.group(2).replace('_', ':').replace('-', '/') if match else "Unknown"
                 
                 # Get file stats
                 stats = os.stat(file_path)
@@ -598,4 +380,3 @@ class RCloneHandler:
         except Exception as e:
             logger.error(f"Error saving main config file: {str(e)}")
             raise
-

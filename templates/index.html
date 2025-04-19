@@ -51,17 +51,24 @@
 
 <!-- Active Jobs -->
 <div class="card">
-    <div class="card-header bg-info text-white">
+    <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
         <h3 class="mb-0">
             <i class="fas fa-sync fa-spin"></i> Active Jobs
         </h3>
+        <div>
+            <span id="last-update-time" class="text-white small me-2"></span>
+            <button id="refresh-active-jobs" class="btn btn-sm btn-light">
+                <i class="fas fa-sync"></i> Refresh
+            </button>
+        </div>
     </div>
-    <div class="card-body">
+    <div class="card-body" id="active-jobs-container">
         {% if active_jobs %}
             <div class="table-responsive">
-                <table class="table table-hover">
+                <table class="table table-hover" id="active-jobs-table">
                     <thead>
                         <tr>
+                            <th>Status</th>
                             <th>Source</th>
                             <th>Target</th>
                             <th>Started</th>
@@ -72,11 +79,21 @@
                     </thead>
                     <tbody>
                         {% for job in active_jobs %}
-                        <tr>
-                            <td><code>{{ job.source }}</code></td>
+                        <tr{% if job.from_scheduler %} class="table-primary"{% endif %} data-source="{{ job.source }}" data-target="{{ job.target }}">
+                            <td class="text-center job-status-cell" data-status="running">
+                                <!-- Progress ring will be inserted here via JavaScript -->
+                            </td>
+                            <td>
+                                <code>{{ job.source }}</code>
+                                {% if job.from_scheduler %}
+                                <span class="badge bg-primary ms-1" title="Job avviato da pianificazione">
+                                    <i class="fas fa-calendar-alt"></i> Pianificato
+                                </span>
+                                {% endif %}
+                            </td>
                             <td><code>{{ job.target }}</code></td>
                             <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                            <td>
+                            <td class="job-duration">
                                 {% if job.duration < 60 %}
                                     {{ "%.1f"|format(job.duration) }}s
                                 {% elif job.duration < 3600 %}
@@ -113,13 +130,38 @@
                 </table>
             </div>
         {% else %}
-            <div class="alert alert-info">
+            <div class="alert alert-info" id="no-jobs-message">
                 <i class="fas fa-info-circle"></i> No active jobs at the moment.
             </div>
         {% endif %}
     </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Nessuno script inline necessario, tutto è nel file app.js
+    
+    // Inizializzazione delle funzionalità della pagina
+    document.addEventListener('DOMContentLoaded', function() {
+        // Inizializza la pagina dei job attivi
+        if (typeof initializeActiveJobsPage === 'function') {
+            initializeActiveJobsPage();
+        }
+        
+        // Mostra gli anelli di esempio quando non ci sono job attivi
+        if (document.getElementById('demo-ring-pending')) {
+            setTimeout(() => {
+                // Mostra un anello per ogni stato
+                JobProgressRing.create(document.getElementById('demo-ring-pending'), 'pending', 0, 'In attesa');
+                JobProgressRing.create(document.getElementById('demo-ring-running'), 'running', 65, 'In corso');
+                JobProgressRing.create(document.getElementById('demo-ring-completed'), 'completed', 100, 'Completato');
+                JobProgressRing.create(document.getElementById('demo-ring-error'), 'error', 85, 'Errore');
+            }, 100);
+        }
+    });
+</script>
 <!-- Log Modal -->
 <div class="modal fade" id="logModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
@@ -140,131 +182,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const logModal = new bootstrap.Modal(document.getElementById('logModal'));
-        let currentLogFile = null;
-        let refreshInterval = null;
-
-        // Handle view log buttons
-        document.querySelectorAll('.view-log').forEach(button => {
-            button.addEventListener('click', function() {
-                const logFile = this.getAttribute('data-log-file');
-                currentLogFile = logFile;
-                const logContent = document.getElementById('logContent');
-
-                // Show modal with loading message
-                logContent.textContent = 'Loading log...';
-                logModal.show();
-
-                // Format the log file path to get just the filename for the logs endpoint
-                fetchLogContent(logFile);
-            });
-        });
-
-        // Refresh log button
-        document.getElementById('refreshLogBtn').addEventListener('click', function() {
-            if (currentLogFile) {
-                fetchLogContent(currentLogFile);
-            }
-        });
-
-        // Handle cancel job forms
-        document.querySelectorAll('.cancel-form').forEach(form => {
-            form.addEventListener('submit', function(e) {
-                e.preventDefault();
-                const source = this.querySelector('input[name="source"]').value;
-                const target = this.querySelector('input[name="target"]').value;
-
-                // Find job in database
-                fetch('/history')
-                    .then(response => response.text())
-                    .then(html => {
-                        const parser = new DOMParser();
-                        const doc = parser.parseFromString(html, 'text/html');
-
-                        // Find the job ID for this source/target combination
-                        let jobId = null;
-                        doc.querySelectorAll('.job-row').forEach(row => {
-                            const rowSource = row.querySelector('td:nth-child(2) code').textContent;
-                            const rowTarget = row.querySelector('td:nth-child(3) code').textContent;
-                            const rowStatus = row.querySelector('.job-status .badge').textContent.trim();
-
-                            if (rowSource === source && rowTarget === target && rowStatus === 'Running') {
-                                jobId = row.getAttribute('data-job-id');
-                            }
-                        });
-
-                        if (jobId) {
-                            // Submit to the correct endpoint
-                            const finalUrl = `/cancel_job/${jobId}`;
-                            const finalForm = document.createElement('form');
-                            finalForm.method = 'post';
-                            finalForm.action = finalUrl;
-                            document.body.appendChild(finalForm);
-                            finalForm.submit();
-                        } else {
-                            alert('Job non trovato nella cronologia o non è in stato "running"');
-                            window.location.reload();
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error finding job ID:', error);
-                        alert('Errore durante la ricerca del job');
-                    });
-            });
-        });
-
-        // Fetch log content function
-        function fetchLogContent(logFile) {
-            // Format the log file path to get just the filename for the logs endpoint
-            const logFileName = logFile.split('/').pop();
-
-            // Fetch log content using the log_file endpoint
-            fetch(`/logs/${logFileName}`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Failed to load log file');
-                    }
-                    return response.text();
-                })
-                .then(data => {
-                    document.getElementById('logContent').textContent = data;
-                })
-                .catch(error => {
-                    document.getElementById('logContent').textContent = `Error loading log: ${error.message}`;
-                });
-        }
-
-        // Set up auto-refresh for log content
-        document.getElementById('logModal').addEventListener('shown.bs.modal', function() {
-            // Start periodically refreshing the log
-            refreshInterval = setInterval(() => {
-                if (currentLogFile) {
-                    fetchLogContent(currentLogFile);
-                }
-            }, 5000); // Update every 5 seconds
-        });
-
-        document.getElementById('logModal').addEventListener('hidden.bs.modal', function() {
-            // Stop refreshing when modal is closed
-            if (refreshInterval) {
-                clearInterval(refreshInterval);
-                refreshInterval = null;
-            }
-            currentLogFile = null;
-        });
-
-        // Auto-refresh the active jobs list
-        setInterval(() => {
-            // Only reload if there are active jobs
-            if (document.querySelector('.table tbody tr')) {
-                window.location.reload();
-            }
-        }, 30000); // Refresh every 30 seconds
-    });
-</script>
 {% endblock %}

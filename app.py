@@ -1,10 +1,15 @@
 import os
 import logging
-from datetime import datetime
+import time
+import threading
+from threading import Thread
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, flash, url_for, jsonify, send_from_directory
-from models import db, SyncJob, SyncJobHistory, ScheduledJob
+from models import db, SyncJob, SyncJobHistory, ScheduledJob, UserSettings, Notification
 from utils.rclone_handler import RCloneHandler
 from utils.scheduler import JobScheduler
+from utils.notification_manager import get_notifications, mark_notification_read, mark_all_read, add_notification
+from utils.notification_manager import notify_job_started, notify_job_completed, get_user_settings, update_settings
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -41,6 +46,10 @@ logger.info(f"Jobs Config: {RCLONE_CONFIG_PATH}")
 logger.info(f"Main Config: {rclone_handler.main_config_path}")
 logger.info(f"Log Directory: {LOG_DIR}")
 logger.info("==================================")
+
+# Lo scheduler viene avviato esternamente:
+# - In modalità sviluppo: viene avviato da main.py
+# - In modalità produzione: viene avviato da scheduler_runner.py
 
 # Add template context processors
 @app.context_processor
@@ -80,7 +89,7 @@ def check_orphaned_jobs():
                     job.end_time = datetime.now()
                     
                     # Inoltre, elimina eventuali file di lock persistenti
-                    tag = f"{job.source.replace(':', '_').replace('/', '_')}__TO__{job.target.replace(':', '_').replace('/', '_')}"
+                    tag = rclone_handler._generate_tag(job.source, job.target)
                     lock_file = f"{LOG_DIR}/sync_{tag}.lock"
                     if os.path.exists(lock_file):
                         try:
@@ -109,7 +118,7 @@ def force_cleanup_jobs():
                 job.end_time = datetime.now() if not job.end_time else job.end_time
                 
                 # Rimuovi i file di lock associati
-                tag = f"{job.source.replace(':', '_').replace('/', '_')}__TO__{job.target.replace(':', '_').replace('/', '_')}"
+                tag = rclone_handler._generate_tag(job.source, job.target)
                 lock_file = f"{LOG_DIR}/sync_{tag}.lock"
                 if os.path.exists(lock_file):
                     try:
@@ -129,20 +138,112 @@ def force_cleanup_jobs():
         logger.error(f"Error in force cleanup: {str(e)}")
         return 0
 
+# Funzione per pulire gli spazi nei percorsi
+def clean_path_whitespace():
+    """Rimuove gli spazi extra nei percorsi salvati nel database"""
+    try:
+        # Correggi eventuali spazi nei job pianificati
+        scheduled_jobs = ScheduledJob.query.all()
+        jobs_updated = 0
+        
+        for job in scheduled_jobs:
+            source_stripped = job.source.strip()
+            target_stripped = job.target.strip()
+            
+            if source_stripped != job.source or target_stripped != job.target:
+                logger.info(f"Pulizia spazi nel job pianificato {job.id}: '{job.source}' → '{source_stripped}', '{job.target}' → '{target_stripped}'")
+                job.source = source_stripped
+                job.target = target_stripped
+                jobs_updated += 1
+        
+        if jobs_updated > 0:
+            db.session.commit()
+            logger.info(f"Puliti {jobs_updated} job pianificati con spazi nei percorsi")
+            
+        # Correggi eventuali spazi nella cronologia dei job
+        history_jobs = SyncJobHistory.query.all()
+        history_updated = 0
+        
+        for job in history_jobs:
+            source_stripped = job.source.strip()
+            target_stripped = job.target.strip()
+            
+            if source_stripped != job.source or target_stripped != job.target:
+                logger.info(f"Pulizia spazi nel job storico {job.id}: '{job.source}' → '{source_stripped}', '{job.target}' → '{target_stripped}'")
+                job.source = source_stripped
+                job.target = target_stripped
+                history_updated += 1
+        
+        if history_updated > 0:
+            db.session.commit()
+            logger.info(f"Puliti {history_updated} job storici con spazi nei percorsi")
+            
+        # Correggi eventuali spazi nei job configurati
+        sync_jobs = SyncJob.query.all()
+        sync_updated = 0
+        
+        for job in sync_jobs:
+            source_stripped = job.source.strip()
+            target_stripped = job.target.strip()
+            
+            if source_stripped != job.source or target_stripped != job.target:
+                logger.info(f"Pulizia spazi nel job configurato {job.id}: '{job.source}' → '{source_stripped}', '{job.target}' → '{target_stripped}'")
+                job.source = source_stripped
+                job.target = target_stripped
+                sync_updated += 1
+        
+        if sync_updated > 0:
+            db.session.commit()
+            logger.info(f"Puliti {sync_updated} job configurati con spazi nei percorsi")
+            
+    except Exception as e:
+        logger.error(f"Errore durante la pulizia degli spazi nei percorsi: {str(e)}")
+
 # Esegui il controllo all'avvio
 with app.app_context():
     db.create_all()
     check_orphaned_jobs()  # Controllo iniziale all'avvio
-    
-    # Avvia lo scheduler dei job
-    job_scheduler.start()
-    logger.info("Job scheduler started")
+    clean_path_whitespace()  # Pulizia spazi nei percorsi
 
 
 @app.route("/")
 def index():
     """Home page with options to create new jobs or run existing ones"""
+    # Controlla e aggiorna eventuali job orfani prima di mostrare la pagina
+    check_orphaned_jobs()
     active_jobs = rclone_handler.get_active_jobs()
+    
+    # Controllo aggiuntivo: verifica se esistono job in stato "running" nel DB 
+    # che non compaiono nella lista degli active jobs
+    running_jobs_count = 0
+    try:
+        with app.app_context():
+            running_jobs = SyncJobHistory.query.filter_by(status="running").all()
+            for job in running_jobs:
+                # Se non è presente negli active jobs ma è segnato come running nel DB
+                is_active = False
+                for active_job in active_jobs:
+                    if active_job.get("source") == job.source and active_job.get("target") == job.target:
+                        is_active = True
+                        break
+                
+                if not is_active:
+                    # Il job non è attivo ma è segnato come running: verifica se il lock file esiste
+                    tag = rclone_handler._generate_tag(job.source, job.target)
+                    lock_file = f"{LOG_DIR}/sync_{tag}.lock"
+                    if not os.path.exists(lock_file):
+                        # Aggiorna lo stato del job a "completed"
+                        job.status = "completed"
+                        job.end_time = datetime.now() if not job.end_time else job.end_time
+                        db.session.commit()
+                        logger.info(f"Auto-fixed ghost job: {job.id} {job.source} → {job.target}")
+                        running_jobs_count += 1
+    except Exception as e:
+        logger.error(f"Error checking ghost jobs: {str(e)}")
+    
+    if running_jobs_count > 0:
+        flash(f"Aggiornati {running_jobs_count} job fantasma che risultavano in esecuzione ma erano terminati", "info")
+    
     return render_template("index.html", active_jobs=active_jobs, rclone_handler=rclone_handler)
 
 
@@ -181,6 +282,9 @@ def run_job():
             db.session.add(history)
             db.session.commit()
             
+            # Notifica l'avvio del job
+            notify_job_started(history.id, job.get("source"), job.get("target"), is_scheduled=False, dry_run=dry_run)
+            
         flash(f"Job started successfully: {job_id}", "success")
     except Exception as e:
         logger.error(f"Error running job: {str(e)}")
@@ -216,6 +320,9 @@ def create_job():
             db.session.add(history)
             db.session.commit()
             
+            # Notifica l'avvio del job
+            notify_job_started(history.id, source, target, is_scheduled=False, dry_run=dry_run)
+            
         flash("Job started successfully", "success")
     except Exception as e:
         logger.error(f"Error creating job: {str(e)}")
@@ -226,16 +333,89 @@ def create_job():
 
 @app.route("/history")
 def history():
-    """View history of executed jobs"""
+    """View history of executed jobs with filtering and pagination"""
     # Controlla e aggiorna eventuali job orfani
     check_orphaned_jobs()
-    job_history = SyncJobHistory.query.order_by(SyncJobHistory.start_time.desc()).all()
-    return render_template("history.html", job_history=job_history)
+    
+    # Parametri di filtro
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+    id_filter = request.args.get('id', '')
+    source_filter = request.args.get('source', '')
+    target_filter = request.args.get('target', '')
+    status_filter = request.args.get('status', '')
+    mode_filter = request.args.get('mode', '')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    
+    # Costruzione della query con filtri
+    query = SyncJobHistory.query
+    
+    if id_filter:
+        query = query.filter(SyncJobHistory.id == id_filter)
+    if source_filter:
+        query = query.filter(SyncJobHistory.source.ilike(f'%{source_filter}%'))
+    if target_filter:
+        query = query.filter(SyncJobHistory.target.ilike(f'%{target_filter}%'))
+    if status_filter:
+        query = query.filter(SyncJobHistory.status == status_filter)
+    if mode_filter:
+        if mode_filter.lower() == 'dry':
+            query = query.filter(SyncJobHistory.dry_run == True)
+        elif mode_filter.lower() == 'live':
+            query = query.filter(SyncJobHistory.dry_run == False)
+    
+    # Filtro per data
+    if date_from:
+        try:
+            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
+            query = query.filter(SyncJobHistory.start_time >= date_from_obj)
+        except ValueError:
+            # Ignora se il formato della data non è valido
+            pass
+    
+    if date_to:
+        try:
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
+            # Aggiunge un giorno per inclusività
+            date_to_obj = date_to_obj + timedelta(days=1)
+            query = query.filter(SyncJobHistory.start_time <= date_to_obj)
+        except ValueError:
+            # Ignora se il formato della data non è valido
+            pass
+    
+    # Ordinamento e paginazione
+    paginated_history = query.order_by(SyncJobHistory.start_time.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    
+    # Opzioni per i filtri dropdown
+    status_options = ['running', 'completed', 'error', 'pending']
+    mode_options = ['dry', 'live']
+    
+    return render_template(
+        "history.html", 
+        paginated_history=paginated_history,
+        job_history=paginated_history.items,
+        status_options=status_options,
+        mode_options=mode_options,
+        filters={
+            'id': id_filter,
+            'source': source_filter,
+            'target': target_filter,
+            'status': status_filter,
+            'mode': mode_filter,
+            'date_from': date_from,
+            'date_to': date_to,
+            'page': page,
+            'per_page': per_page
+        }
+    )
 
 
 @app.route("/job_log/<int:job_id>")
 def job_log(job_id):
-    """View log for a specific job"""
+    """View log for a specific job (JSON endpoint)"""
     job = SyncJobHistory.query.get_or_404(job_id)
     
     log_content = "Log file not found or empty."
@@ -251,10 +431,82 @@ def job_log(job_id):
     return jsonify({"log": log_content})
 
 
+@app.route("/view_log/<int:job_id>")
+def view_log(job_id):
+    """View log file for a specific job with search capability"""
+    job = SyncJobHistory.query.get_or_404(job_id)
+    
+    log_content = "Log file not found or empty."
+    log_filename = "N/A"
+    
+    if job.log_file and os.path.exists(job.log_file):
+        try:
+            with open(job.log_file, 'r') as f:
+                log_content = f.read()
+            log_filename = os.path.basename(job.log_file)
+        except Exception as e:
+            logger.error(f"Error reading log file: {str(e)}")
+            log_content = f"Error reading log file: {str(e)}"
+    
+    # Per evitare l'errore con job.duration_formatted che viene trattato come callable
+    # ma è una proprietà, creiamo una versione stringa esplicita
+    if hasattr(job, 'duration_formatted'):
+        if callable(job.duration_formatted):
+            job.duration_formatted_str = job.duration_formatted()
+        else:
+            job.duration_formatted_str = job.duration_formatted
+    else:
+        job.duration_formatted_str = "N/A"
+        
+    return render_template('view_log.html', 
+                           job=job, 
+                           job_id=job_id, 
+                           log_content=log_content, 
+                           log_filename=log_filename)
+
+
 @app.route("/logs/<path:filename>")
 def log_file(filename):
     """Serve log files from the log directory"""
     return send_from_directory(LOG_DIR, filename)
+
+
+@app.route("/api/active_jobs")
+def api_active_jobs():
+    """Restituisce i job attivi in formato JSON per aggiornamenti AJAX"""
+    # Controlla e aggiorna eventuali job orfani prima di restituire i dati
+    check_orphaned_jobs()
+    active_jobs = rclone_handler.get_active_jobs()
+    
+    # Formatta i dati per il client
+    formatted_jobs = []
+    for job in active_jobs:
+        formatted_job = {
+            'source': job.get('source'),
+            'target': job.get('target'),
+            'start_time': job.get('start_time').strftime('%Y-%m-%d %H:%M:%S'),
+            'duration': job.get('duration'),
+            'duration_formatted': format_duration(job.get('duration')),
+            'dry_run': job.get('dry_run'),
+            'log_file': job.get('log_file'),
+            'from_scheduler': job.get('from_scheduler', False)
+        }
+        formatted_jobs.append(formatted_job)
+    
+    return jsonify({
+        "active_jobs": formatted_jobs,
+        "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    })
+
+
+def format_duration(seconds):
+    """Formatta una durata in secondi in un formato leggibile"""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    elif seconds < 3600:
+        return f"{seconds/60:.1f}m"
+    else:
+        return f"{seconds/3600:.1f}h"
 
 
 @app.route("/job_status/<int:job_id>")
@@ -277,10 +529,16 @@ def job_status(job_id):
                             status = "error"
                             job.status = status
                             logger.info(f"Job {job.id} marked as error")
+                            
+                            # Invia notifica di completamento con errore
+                            notify_job_completed(job.id, job.source, job.target, success=False, duration=job.duration)
                         else:
                             status = "completed"
                             job.status = status
                             logger.info(f"Job {job.id} marked as completed")
+                            
+                            # Invia notifica di completamento con successo
+                            notify_job_completed(job.id, job.source, job.target, success=True, duration=job.duration)
                 except Exception as e:
                     logger.error(f"Error reading log file: {str(e)}")
                     status = "error"
@@ -294,15 +552,42 @@ def job_status(job_id):
     else:
         status = job.status
     
-    return jsonify({"status": status})
+    # Restituisci anche la durata aggiornata e altre informazioni utili
+    return jsonify({
+        "status": status,
+        "duration": job.duration_formatted(),
+        "end_time": job.end_time.strftime('%Y-%m-%d %H:%M:%S') if job.end_time else None
+    })
 
 
 @app.route("/force_cleanup", methods=["POST"])
+@app.route("/clean_all_jobs")
 def clean_all_jobs():
     """Force cleanup all running jobs"""
-    cleaned_count = force_cleanup_jobs()
-    flash(f"Forced cleanup of {cleaned_count} job(s)", "info")
-    return redirect(url_for("history"))
+    # Controlla se c'è un parametro che indica di pulire anche i percorsi
+    clean_paths_too = request.args.get("clean_paths") == "1"
+    
+    try:
+        cleaned_count = force_cleanup_jobs()
+        
+        if clean_paths_too:
+            # Esegui la pulizia degli spazi nei percorsi
+            try:
+                clean_path_whitespace()
+                flash("Pulizia dei percorsi completata. Gli spazi extra sono stati rimossi.", "success")
+            except Exception as e:
+                logger.error(f"Errore durante la pulizia dei percorsi: {str(e)}")
+                flash(f"Errore durante la pulizia dei percorsi: {str(e)}", "danger")
+        
+        if cleaned_count > 0:
+            flash(f"Puliti {cleaned_count} job bloccati", "success")
+        elif not clean_paths_too:  # Non mostrare questo messaggio se abbiamo già mostrato quello della pulizia percorsi
+            flash("Nessun job bloccato trovato", "info")
+    except Exception as e:
+        logger.error(f"Errore durante la pulizia dei job: {str(e)}")
+        flash(f"Errore durante la pulizia dei job: {str(e)}", "danger")
+    
+    return redirect(url_for("index"))
 
 @app.route("/cancel_job/<int:job_id>", methods=["POST"])
 def cancel_job(job_id):
@@ -433,8 +718,8 @@ def schedule():
 def create_scheduled_job():
     """Create a new scheduled job"""
     name = request.form.get("name")
-    source = request.form.get("source")
-    target = request.form.get("target")
+    source = request.form.get("source", "").strip()
+    target = request.form.get("target", "").strip()
     cron_expression = request.form.get("cron_expression")
     enabled = request.form.get("enabled") == "1"
     retry_on_error = request.form.get("retry_on_error") == "1"
@@ -494,8 +779,8 @@ def update_scheduled_job(job_id):
     job = ScheduledJob.query.get_or_404(job_id)
     
     name = request.form.get("name")
-    source = request.form.get("source")
-    target = request.form.get("target")
+    source = request.form.get("source", "").strip()
+    target = request.form.get("target", "").strip()
     cron_expression = request.form.get("cron_expression")
     enabled = request.form.get("enabled") == "1"
     retry_on_error = request.form.get("retry_on_error") == "1"
@@ -588,18 +873,22 @@ def run_scheduled_job_now(job_id):
     job = ScheduledJob.query.get_or_404(job_id)
     
     try:
+        # Rimuovo eventuali spazi extra alla fine dei percorsi
+        source = job.source.strip()
+        target = job.target.strip()
+        
         # Check if source/target already has a running job
-        if rclone_handler.is_job_running(job.source, job.target):
-            flash(f"Impossibile avviare il job: {job.source} → {job.target} ha già un job in esecuzione", "warning")
+        if rclone_handler.is_job_running(source, target):
+            flash(f"Impossibile avviare il job: {source} → {target} ha già un job in esecuzione", "warning")
             return redirect(url_for("schedule"))
         
         # Run the job
-        job_info = rclone_handler.run_custom_job(job.source, job.target, dry_run=False)
+        job_info = rclone_handler.run_custom_job(source, target, dry_run=False)
         
         # Create history entry
         history = SyncJobHistory(
-            source=job.source,
-            target=job.target,
+            source=source,  # Usiamo i valori puliti
+            target=target,  # Usiamo i valori puliti
             status="running",
             dry_run=False,
             start_time=datetime.now(),
@@ -611,9 +900,238 @@ def run_scheduled_job_now(job_id):
         job.last_run = datetime.now()
         db.session.commit()
         
+        # Crea notifica per l'avvio del job
+        notify_job_started(history.id, source, target, is_scheduled=True, dry_run=False)
+        
         flash(f"Job pianificato '{job.name}' avviato manualmente", "success")
     except Exception as e:
         logger.error(f"Error running scheduled job now: {str(e)}")
         flash(f"Error running job: {str(e)}", "danger")
     
     return redirect(url_for("schedule"))
+
+
+# API per notifiche
+@app.route("/api/notifications")
+def api_notifications():
+    """Get recent notifications"""
+    limit = request.args.get('limit', 10, type=int)
+    include_read = request.args.get('include_read', 'false').lower() == 'true'
+    
+    notifications = get_notifications(limit=limit, include_read=include_read)
+    
+    # Includi anche lo stato corrente delle impostazioni
+    settings = get_user_settings()
+    
+    return jsonify({
+        "notifications": notifications,
+        "settings": {
+            "notifications_enabled": settings.notifications_enabled
+        },
+        "unread_count": Notification.query.filter_by(read=False).count()
+    })
+
+
+@app.route("/api/notifications/mark-read/<int:notification_id>", methods=["POST"])
+def api_mark_notification_read(notification_id):
+    """Mark a notification as read"""
+    success = mark_notification_read(notification_id)
+    return jsonify({"success": success})
+
+
+@app.route("/api/notifications/mark-all-read", methods=["POST"])
+def api_mark_all_read():
+    """Mark all notifications as read"""
+    count = mark_all_read()
+    return jsonify({"success": True, "count": count})
+
+
+@app.route("/settings", methods=["GET", "POST"])
+def user_settings():
+    """View and update user settings"""
+    settings = get_user_settings()
+    
+    if request.method == "POST":
+        notifications_enabled = request.form.get("notifications_enabled") == "on"
+        
+        # Salva le impostazioni aggiornate
+        update_settings(notifications_enabled=notifications_enabled)
+        flash("Impostazioni aggiornate con successo", "success")
+    
+    return render_template("settings.html", settings=settings)
+
+
+@app.route("/clean_paths")
+def clean_paths():
+    """Pulisci gli spazi nei percorsi del database"""
+    try:
+        # Esegui la funzione di pulizia
+        clean_path_whitespace()
+        flash("Pulizia dei percorsi completata. Gli spazi extra sono stati rimossi.", "success")
+    except Exception as e:
+        logger.error(f"Errore durante la pulizia dei percorsi: {str(e)}")
+        flash(f"Errore durante la pulizia dei percorsi: {str(e)}", "danger")
+    
+    return redirect(url_for('index'))
+
+
+@app.route("/search_logs")
+def search_logs():
+    """Search in log files"""
+    import re
+    import os
+    import glob
+    from datetime import datetime
+    
+    # Recupera parametri dalla request
+    search_text = request.args.get('search_text', '')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    context_lines = int(request.args.get('context_lines', 5))
+    max_results = int(request.args.get('max_results', 1000))
+    case_sensitive = request.args.get('case_sensitive') == 'on'
+    
+    # Flag per indicare se è stata effettuata una ricerca
+    searched = bool(search_text or date_from or date_to)
+    
+    # Preparazione dei filtri
+    filters = {
+        'search_text': search_text,
+        'date_from': date_from,
+        'date_to': date_to,
+        'context_lines': context_lines,
+        'max_results': max_results,
+        'case_sensitive': case_sensitive
+    }
+    
+    results = []
+    
+    # Se almeno un filtro è attivo, procedi con la ricerca
+    if searched and (search_text or date_from or date_to):
+        try:
+            # Converte le date in oggetti datetime
+            date_from_obj = None
+            date_to_obj = None
+            
+            if date_from:
+                date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
+            
+            if date_to:
+                date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
+                # Aggiungi un giorno per inclusività
+                date_to_obj = date_to_obj + timedelta(days=1)
+            
+            # Ottieni la lista di tutti i file di log
+            log_files = []
+            for job in SyncJobHistory.query.all():
+                if job.log_file and os.path.exists(job.log_file):
+                    # Estrai la data dal file
+                    try:
+                        file_date = job.start_time
+                        
+                        # Filtra per data se specificata
+                        if date_from_obj and file_date < date_from_obj:
+                            continue
+                        if date_to_obj and file_date > date_to_obj:
+                            continue
+                        
+                        log_files.append((job.id, job.log_file, file_date))
+                    except Exception as e:
+                        logger.error(f"Error parsing log file date: {str(e)}")
+            
+            # Prepara la regex per la ricerca
+            if search_text:
+                flags = 0 if case_sensitive else re.IGNORECASE
+                search_pattern = re.compile(re.escape(search_text), flags)
+            
+            # Cerca in ogni file di log
+            result_count = 0
+            for job_id, log_file, file_date in log_files:
+                if result_count >= max_results:
+                    break
+                
+                try:
+                    with open(log_file, 'r') as f:
+                        lines = f.readlines()
+                    
+                    # Se non c'è testo da cercare, mostra l'intero file
+                    if not search_text:
+                        # Limita le linee mostrate per file
+                        content = ''.join(lines[:100])
+                        if len(lines) > 100:
+                            content += '\n... (truncated, too many lines) ...'
+                        
+                        results.append({
+                            'job_id': job_id,
+                            'filename': os.path.basename(log_file),
+                            'date': file_date.strftime('%Y-%m-%d %H:%M:%S'),
+                            'content': content
+                        })
+                        
+                        result_count += 1
+                        continue
+                    
+                    # Cerca il testo nel file
+                    for i, line in enumerate(lines):
+                        if search_pattern.search(line):
+                            # Calcola l'intervallo di linee da mostrare
+                            start = max(0, i - context_lines)
+                            end = min(len(lines), i + context_lines + 1)
+                            
+                            # Estrai le linee con contesto
+                            content_lines = lines[start:end]
+                            
+                            # Evidenzia il testo cercato
+                            highlighted_content = []
+                            for j, content_line in enumerate(content_lines):
+                                line_num = start + j
+                                # Aggiungi numeri di riga
+                                prefix = f"{line_num + 1:4d} | "
+                                
+                                # Evidenzia la linea corrente
+                                if line_num == i:
+                                    # Evidenzia il testo cercato
+                                    if case_sensitive:
+                                        highlighted_line = content_line.replace(search_text, 
+                                                                           f'<mark class="bg-warning text-dark">{search_text}</mark>')
+                                    else:
+                                        # Per case insensitive, dobbiamo usare regex
+                                        highlighted_line = re.sub(f'({re.escape(search_text)})', 
+                                                             r'<mark class="bg-warning text-dark">\1</mark>', 
+                                                             content_line, 
+                                                             flags=re.IGNORECASE)
+                                    
+                                    highlighted_content.append(f"<strong>{prefix}{highlighted_line}</strong>")
+                                else:
+                                    highlighted_content.append(f"{prefix}{content_line}")
+                            
+                            content = ''.join(highlighted_content)
+                            
+                            results.append({
+                                'job_id': job_id,
+                                'filename': os.path.basename(log_file),
+                                'date': file_date.strftime('%Y-%m-%d %H:%M:%S'),
+                                'content': content
+                            })
+                            
+                            result_count += 1
+                            
+                            # Limita il numero di risultati per lo stesso file
+                            if result_count >= max_results:
+                                break
+                
+                except Exception as e:
+                    logger.error(f"Error searching log file {log_file}: {str(e)}")
+                    continue
+        
+        except Exception as e:
+            logger.error(f"Error in search_logs: {str(e)}")
+            flash(f"Si è verificato un errore durante la ricerca: {str(e)}", "danger")
+    
+    return render_template(
+        "search_logs.html", 
+        filters=filters,
+        results=results,
+        searched=searched
+    )
+

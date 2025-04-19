@@ -1,0 +1,274 @@
+{% extends 'base.html' %}
+
+{% block title %}Visualizza log - RClone Manager{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="fas fa-file-alt me-2"></i>{{ log_filename }}</h2>
+        <div>
+            <a href="{{ url_for('history') }}?id={{ job_id }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Torna al job
+            </a>
+            <a href="{{ url_for('search_logs') }}" class="btn btn-outline-secondary ms-2">
+                <i class="fas fa-search me-1"></i>Ricerca log
+            </a>
+        </div>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header bg-light">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong><i class="fas fa-info-circle me-2"></i>Informazioni sul job</strong>
+                </div>
+                <div>
+                    <span class="badge {% if job.status == 'completed' %}bg-success{% elif job.status == 'error' %}bg-danger{% elif job.status == 'running' %}bg-primary{% else %}bg-secondary{% endif %}">
+                        {{ job.status|upper }}
+                    </span>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-3">ID:</dt>
+                        <dd class="col-sm-9">{{ job.id }}</dd>
+                        
+                        <dt class="col-sm-3">Sorgente:</dt>
+                        <dd class="col-sm-9">{{ job.source }}</dd>
+                        
+                        <dt class="col-sm-3">Destinazione:</dt>
+                        <dd class="col-sm-9">{{ job.target }}</dd>
+                    </dl>
+                </div>
+                <div class="col-md-6">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-3">Modalità:</dt>
+                        <dd class="col-sm-9">{{ 'Dry Run' if job.dry_run else 'Live' }}</dd>
+                        
+                        <dt class="col-sm-3">Data di inizio:</dt>
+                        <dd class="col-sm-9">{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+                        
+                        <dt class="col-sm-3">Durata:</dt>
+                        <dd class="col-sm-9">{{ job.duration_formatted_str if job.end_time else 'In corso...' }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header bg-light">
+            <div class="d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-file-code me-2"></i>Contenuto del log</span>
+                <div class="search-box">
+                    <div class="input-group">
+                        <input type="text" class="form-control form-control-sm" id="searchInput" placeholder="Cerca nel log...">
+                        <div class="input-group-text">
+                            <div class="form-check form-check-inline mb-0 me-0">
+                                <input class="form-check-input" type="checkbox" id="caseSensitive">
+                                <label class="form-check-label small" for="caseSensitive">Maiusc/min</label>
+                            </div>
+                        </div>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" id="searchPrev">
+                            <i class="fas fa-chevron-up"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" id="searchNext">
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                        <span class="input-group-text small" id="searchStats">0/0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="log-content">
+                <pre class="mb-0" id="logContent" style="max-height: 70vh; overflow: auto; padding: 1rem; line-height: 1.5;">{{ log_content }}</pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const logContent = document.getElementById('logContent');
+        const searchInput = document.getElementById('searchInput');
+        const caseSensitive = document.getElementById('caseSensitive');
+        const searchPrev = document.getElementById('searchPrev');
+        const searchNext = document.getElementById('searchNext');
+        const searchStats = document.getElementById('searchStats');
+        
+        let currentMatch = -1;
+        let matches = [];
+        
+        // Aggiungi numeri di riga
+        addLineNumbers();
+        
+        function addLineNumbers() {
+            const lines = logContent.innerHTML.split('\n');
+            const numberedLines = lines.map((line, index) => 
+                `<span class="line-number">${index + 1}</span> ${line}`
+            );
+            logContent.innerHTML = numberedLines.join('\n');
+            
+            // Aggiungi stile ai numeri di riga
+            const style = document.createElement('style');
+            style.textContent = `
+                .line-number {
+                    display: inline-block;
+                    width: 4em;
+                    color: #999;
+                    text-align: right;
+                    padding-right: 1em;
+                    user-select: none;
+                }
+                .highlight {
+                    background-color: #ffc107;
+                    color: #000;
+                }
+                .current-highlight {
+                    background-color: #fd7e14;
+                    color: #000;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        // Cerca nel contenuto
+        function search() {
+            // Rimuovi i precedenti highlight
+            clearHighlights();
+            
+            const searchText = searchInput.value.trim();
+            if (!searchText) {
+                matches = [];
+                currentMatch = -1;
+                updateSearchStats();
+                return;
+            }
+            
+            // Opzioni di ricerca
+            const flags = caseSensitive.checked ? 'g' : 'gi';
+            const regex = new RegExp(escapeRegExp(searchText), flags);
+            
+            // Trova tutte le corrispondenze
+            matches = [];
+            const content = logContent.innerHTML;
+            const lines = content.split('\n');
+            
+            for (let i = 0; i < lines.length; i++) {
+                if (regex.test(lines[i])) {
+                    matches.push(i);
+                    
+                    // Evidenzia il testo cercato
+                    lines[i] = lines[i].replace(regex, match => 
+                        `<span class="highlight">${match}</span>`
+                    );
+                }
+            }
+            
+            logContent.innerHTML = lines.join('\n');
+            
+            // Reset stato
+            currentMatch = matches.length > 0 ? 0 : -1;
+            if (currentMatch >= 0) {
+                scrollToMatch(currentMatch);
+            }
+            
+            updateSearchStats();
+        }
+        
+        // Pulisci tutti gli highlight
+        function clearHighlights() {
+            const content = logContent.innerHTML;
+            logContent.innerHTML = content
+                .replace(/<span class="highlight current-highlight">(.*?)<\/span>/g, '$1')
+                .replace(/<span class="highlight">(.*?)<\/span>/g, '$1');
+        }
+        
+        // Scorri alla corrispondenza corrente
+        function scrollToMatch(index) {
+            if (index < 0 || index >= matches.length) return;
+            
+            // Rimuovi l'highlight corrente precedente
+            const elements = logContent.querySelectorAll('.current-highlight');
+            elements.forEach(el => {
+                el.classList.remove('current-highlight');
+            });
+            
+            // Evidenzia l'elemento corrente
+            const lineIndex = matches[index];
+            const lines = logContent.innerHTML.split('\n');
+            
+            lines[lineIndex] = lines[lineIndex].replace(
+                /<span class="highlight">(.*?)<\/span>/g, 
+                '<span class="highlight current-highlight">$1</span>'
+            );
+            
+            logContent.innerHTML = lines.join('\n');
+            
+            // Scorri alla posizione
+            const lineElements = logContent.querySelectorAll('span.current-highlight');
+            if (lineElements.length > 0) {
+                lineElements[0].scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center'
+                });
+            }
+        }
+        
+        // Aggiorna i numeri delle corrispondenze
+        function updateSearchStats() {
+            if (matches.length === 0) {
+                searchStats.textContent = '0/0';
+            } else {
+                searchStats.textContent = `${currentMatch + 1}/${matches.length}`;
+            }
+        }
+        
+        // Vai alla corrispondenza precedente
+        function previousMatch() {
+            if (matches.length === 0) return;
+            
+            currentMatch = (currentMatch - 1 + matches.length) % matches.length;
+            scrollToMatch(currentMatch);
+            updateSearchStats();
+        }
+        
+        // Vai alla corrispondenza successiva
+        function nextMatch() {
+            if (matches.length === 0) return;
+            
+            currentMatch = (currentMatch + 1) % matches.length;
+            scrollToMatch(currentMatch);
+            updateSearchStats();
+        }
+        
+        // Escape regex special characters
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        
+        // Event listeners
+        searchInput.addEventListener('input', search);
+        caseSensitive.addEventListener('change', search);
+        searchPrev.addEventListener('click', previousMatch);
+        searchNext.addEventListener('click', nextMatch);
+        
+        // Anche con Invio
+        searchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                if (e.shiftKey) {
+                    previousMatch();
+                } else {
+                    nextMatch();
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}
