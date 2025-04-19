@@ -26,7 +26,7 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
 1. Clone this repository
   ```
   cd /opt
-  git clone [https://github.com/axxx75/Rclone-Manager/rclone-manager.git](https://github.com/axxx75/Rclone-Manager.git)
+  git clone https://github.com/axxx75/Rclone-Manager.git
   ```
 2. Prepare enviroment
   ```
@@ -36,9 +36,19 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
   ```
 3. Install Python dependencies:
   ```
-  pip3 install tqdm flask flask-sqlalchemy gunicorn psycopg2-binary email-validator
+  pip3 install tqdm flask flask-sqlalchemy gunicorn psycopg2-binary email-validator crontab
   ```
-5. Configure App with service
+4. Configure App with service
+
+Open file `rclone-manager.service` and modify section:
+  ```
+  User=YOUR_USERNAME
+  Group=YOUR_USERNAME
+  WorkingDirectory=/path/to/rclone-manager
+  ExecStart=/bin/bash -c 'source /path/to/rclone-manager/venv/bin/activate && ./start_all.sh'
+  ExecStartPre=/bin/mkdir -p /path/to/rclone-manager/data/logs
+  ```
+Configure the service:
   ```
   cp /opt/Rclone-Manager/rclone-manager.service /etc/systemd/system/
   systemctl daemon-reexec
@@ -46,10 +56,36 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
   systemctl enable rclone-manager
   systemctl start rclone-manager
   ```
-  Controlla lo stato
+
+## Gestione del servizio
+
+- **Restart the service**:
+  ```bash
+  sudo systemctl restart rclone-manager
   ```
-  systemctl status rclone-manager
+
+- **Stop the service**:
+  ```bash
+  sudo systemctl stop rclone-manager
   ```
+
+  **Status of the service**:
+  ```bash
+  sudo systemctl status rclone-manager
+  ```
+
+- **View log**:
+  ```bash
+  sudo journalctl -u rclone-manager -f
+  ```
+
+## Problem resolution dei problemi
+
+If the service not start correctly, check the log with:
+
+```bash
+sudo journalctl -u rclone-manager -e
+```
 
 ## Usage
 
@@ -75,4 +111,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 [MIT LICENSE](https://github.com/axxx75/Rclone-Manager/edit/main/LICENSE)
-
