@@ -37,7 +37,8 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
   ```
   pip3 install tqdm flask flask-sqlalchemy gunicorn psycopg2-binary email-validator crontab
   ```
-5. Configure App with service
+4. Configure App with service
+
 Open file `rclone-manager.service` and modify section:
   ```
   User=YOUR_USERNAME
@@ -61,24 +62,24 @@ Configure the service:
 
 ## Gestione del servizio
 
-- **Riavviare il servizio**:
+- **Restart the service**:
   ```bash
   sudo systemctl restart rclone-manager
   ```
 
-- **Arrestare il servizio**:
+- **Stop the service**:
   ```bash
   sudo systemctl stop rclone-manager
   ```
 
-- **Visualizzare i log**:
+- **View log**:
   ```bash
   sudo journalctl -u rclone-manager -f
   ```
 
-## Risoluzione dei problemi
+## Problem resolution dei problemi
 
-Se il servizio non si avvia correttamente, controlla i log con:
+If the service not start correctly, check the log with:
 
 ```bash
 sudo journalctl -u rclone-manager -e
