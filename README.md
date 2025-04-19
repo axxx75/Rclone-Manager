@@ -55,10 +55,6 @@ Configure the service:
   systemctl enable rclone-manager
   systemctl start rclone-manager
   ```
-  Check the status
-  ```
-  systemctl status rclone-manager
-  ```
 
 ## Gestione del servizio
 
@@ -70,6 +66,11 @@ Configure the service:
 - **Stop the service**:
   ```bash
   sudo systemctl stop rclone-manager
+  ```
+
+  **Status of the service**:
+  ```bash
+  sudo systemctl status rclone-manager
   ```
 
 - **View log**:
