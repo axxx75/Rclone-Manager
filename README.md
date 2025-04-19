@@ -35,9 +35,18 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
   ```
 3. Install Python dependencies:
   ```
-  pip3 install tqdm flask flask-sqlalchemy gunicorn psycopg2-binary email-validator
+  pip3 install tqdm flask flask-sqlalchemy gunicorn psycopg2-binary email-validator crontab
   ```
 5. Configure App with service
+Open file `rclone-manager.service` and modify section:
+  ```
+  User=YOUR_USERNAME
+  Group=YOUR_USERNAME
+  WorkingDirectory=/path/to/rclone-manager
+  ExecStart=/bin/bash -c 'source /path/to/rclone-manager/venv/bin/activate && ./start_all.sh'
+  ExecStartPre=/bin/mkdir -p /path/to/rclone-manager/data/logs
+  ```
+Configure the service:
   ```
   cp /opt/Rclone-Manager/rclone-manager.service /etc/systemd/system/
   systemctl daemon-reexec
@@ -45,10 +54,35 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
   systemctl enable rclone-manager
   systemctl start rclone-manager
   ```
-  Controlla lo stato
+  Check the status
   ```
   systemctl status rclone-manager
   ```
+
+## Gestione del servizio
+
+- **Riavviare il servizio**:
+  ```bash
+  sudo systemctl restart rclone-manager
+  ```
+
+- **Arrestare il servizio**:
+  ```bash
+  sudo systemctl stop rclone-manager
+  ```
+
+- **Visualizzare i log**:
+  ```bash
+  sudo journalctl -u rclone-manager -f
+  ```
+
+## Risoluzione dei problemi
+
+Se il servizio non si avvia correttamente, controlla i log con:
+
+```bash
+sudo journalctl -u rclone-manager -e
+```
 
 ## Usage
 
