@@ -1,4 +1,5 @@
-![AlFa-Tech logo](static/logo_alfa.jpeg "AlFa-Tech")
+[![License](https://img.shields.io/github/license/k8up-io/k8up)][license]
+
 # RClone Manager
 
 A robust Python wrapper for efficient bucket synchronization using rclone with enhanced features for:
