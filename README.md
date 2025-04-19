@@ -1,3 +1,4 @@
+![AlFa-Tech logo](static/logo_alfa.jpeg "AlFa-Tech")
 # RClone Manager
 
 A robust Python wrapper for efficient bucket synchronization using rclone with enhanced features for:
