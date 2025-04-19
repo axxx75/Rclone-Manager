@@ -1,4 +1,5 @@
 ![License](https://img.shields.io/github/license/axxx75/Rclone-Manager)
+![Version](https://img.shields.io/github/v/release/axxx75/Rclone-Manager)
 
 
 # RClone Manager
