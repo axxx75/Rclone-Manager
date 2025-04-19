@@ -1,4 +1,4 @@
-[![License](https://img.shields.io/github/license/k8up-io/k8up)][license]
+[![License](https://img.shields.io/github/license/axxx75/Rclone-Manager)][license]
 
 # RClone Manager
 
