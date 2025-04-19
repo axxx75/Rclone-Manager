@@ -25,7 +25,7 @@ A robust Python wrapper for efficient bucket synchronization using rclone with e
 1. Clone this repository
   ```
   cd /opt
-  git clone [https://github.com/axxx75/Rclone-Manager/rclone-manager.git](https://github.com/axxx75/Rclone-Manager.git)
+  git clone https://github.com/axxx75/Rclone-Manager/rclone-manager.git
   ```
 2. Prepare enviroment
   ```
