@@ -82,7 +82,7 @@ Configure the service:
   sudo journalctl -u rclone-manager -f
   ```
 
-## Problem resolution dei problemi
+## Problem resolution
 
 If the service not start correctly, check the log with:
 
