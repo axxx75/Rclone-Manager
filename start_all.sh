@@ -24,6 +24,6 @@ fi
 
 # Avvia l'applicazione web
 echo "🌐 Start Web Application..."
-exec gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app \
+exec gunicorn --bind 0.0.0.0:5000 --reuse-port --reload --timeout 60 --graceful-timeout 60 --keep-alive 5 main:app \
   --access-logfile "$LOG_DIR/access.log" \
   --error-logfile "$LOG_DIR/error.log"
