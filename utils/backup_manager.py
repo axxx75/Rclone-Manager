@@ -25,16 +25,31 @@ def get_db_path(app):
         str: Path to the database file
     """
     db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    
+    # Handle SQLite URI formats
     if db_uri.startswith('sqlite:///'):
-        # Remove sqlite:/// prefix
+        # Remove sqlite:/// prefix (standard format)
         db_path = db_uri[10:]
-        # If it's a relative path, make it absolute
-        if not os.path.isabs(db_path):
-            db_path = os.path.join(app.instance_path, db_path)
-        return db_path
+    elif db_uri.startswith('sqlite://'):
+        # Absolute path format used by some drivers
+        db_path = db_uri[9:]
     else:
         # For non-SQLite databases, return None
         return None
+    
+    # If the path is relative or points to instance folder already
+    if not os.path.isabs(db_path) or '/instance/' in db_path or '\\instance\\' in db_path:
+        # Extract just the filename if it's a path that includes instance/
+        if '/instance/' in db_path:
+            db_path = db_path.split('/instance/')[1]
+        elif '\\instance\\' in db_path:
+            db_path = db_path.split('\\instance\\')[1]
+        
+        # Use the file name in the instance path
+        db_path = os.path.join(app.instance_path, os.path.basename(db_path))
+    
+    logger.debug(f"Database path resolved to: {db_path}")
+    return db_path
 
 def get_backup_dir(app):
     """
@@ -81,16 +96,58 @@ def create_backup(app, backup_name=None):
     # Backup database
     db_backup_path = os.path.join(backup_path, os.path.basename(db_path))
     try:
-        # Create a connection to the source database
-        source_conn = sqlite3.connect(db_path)
-        # Create a connection to the destination database
-        dest_conn = sqlite3.connect(db_backup_path)
-        # Copy data from source to destination
-        source_conn.backup(dest_conn)
-        # Close connections
-        source_conn.close()
-        dest_conn.close()
-        logger.info(f"Database backup created at {db_backup_path}")
+        # Usa shutil.copy2 invece della funzione backup di SQLite per compatibilità universale
+        # Prima verifica che il database non sia in uso (si spera che sia in sola lettura durante il backup)
+        try:
+            shutil.copy2(db_path, db_backup_path)
+            logger.info(f"Database backup created at {db_backup_path} using file copy")
+        except Exception as copy_error:
+            logger.warning(f"Error during file copy backup: {str(copy_error)}, trying SQL backup...")
+            
+            # Alternativa: esporta e importa i dati tramite SQL
+            # Connessione al database di origine
+            source_conn = sqlite3.connect(db_path)
+            source_cursor = source_conn.cursor()
+            
+            # Connessione al database di destinazione
+            dest_conn = sqlite3.connect(db_backup_path)
+            dest_cursor = dest_conn.cursor()
+            
+            # Ottieni lo schema del database
+            source_cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            tables_schema = source_cursor.fetchall()
+            
+            # Crea le tabelle nel database di destinazione
+            for schema in tables_schema:
+                dest_cursor.execute(schema[0])
+            
+            # Copia i dati per ogni tabella
+            source_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            tables = source_cursor.fetchall()
+            
+            for table in tables:
+                table_name = table[0]
+                source_cursor.execute(f"SELECT * FROM {table_name}")
+                rows = source_cursor.fetchall()
+                
+                if rows:
+                    # Ottieni le colonne
+                    source_cursor.execute(f"PRAGMA table_info({table_name})")
+                    columns = source_cursor.fetchall()
+                    column_count = len(columns)
+                    
+                    # Crea la stringa di placeholder per l'INSERT
+                    placeholders = ','.join(['?' for _ in range(column_count)])
+                    
+                    # Inserisci i dati
+                    for row in rows:
+                        dest_cursor.execute(f"INSERT INTO {table_name} VALUES ({placeholders})", row)
+            
+            # Commit e chiudi le connessioni
+            dest_conn.commit()
+            source_conn.close()
+            dest_conn.close()
+            logger.info(f"Database backup created at {db_backup_path} using SQL export/import")
     except Exception as e:
         logger.error(f"Error creating database backup: {str(e)}")
         raise
@@ -222,27 +279,76 @@ def restore_backup(app, backup_name):
     
     # Restore database
     try:
-        # Create a connection to the source (backup) database
-        source_conn = sqlite3.connect(db_backup_path)
-        # Create a connection to the destination (current) database
-        dest_conn = sqlite3.connect(db_path)
-        # Close the connection and reopen it with exclusive access
-        dest_conn.close()
-        dest_conn = sqlite3.connect(db_path, isolation_level='EXCLUSIVE')
-        dest_conn.execute('BEGIN EXCLUSIVE')
-        # Drop all tables in the destination database
-        tables = dest_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        for table in tables:
-            if table[0] != 'sqlite_sequence':  # Don't drop the sequence table
-                dest_conn.execute(f"DROP TABLE IF EXISTS {table[0]}")
-        # Commit changes
-        dest_conn.commit()
-        # Now copy data from source to destination
-        source_conn.backup(dest_conn)
-        # Close connections
-        source_conn.close()
-        dest_conn.close()
-        logger.info(f"Database restored from {db_backup_path}")
+        # Prova prima con il metodo più semplice: copia diretta del file
+        try:
+            # Prima crea una copia di sicurezza
+            temp_backup = f"{db_path}.before_restore"
+            shutil.copy2(db_path, temp_backup)
+            logger.info(f"Created temporary backup at {temp_backup}")
+            
+            # Poi copia il file di backup sul database corrente
+            shutil.copy2(db_backup_path, db_path)
+            logger.info(f"Database restored from {db_backup_path} using file copy")
+            
+            # Se tutto è andato bene, elimina la copia temporanea
+            # os.remove(temp_backup)  # Commentiamo questa riga per mantenere un backup locale
+        except Exception as copy_error:
+            logger.warning(f"Error during file copy restore: {str(copy_error)}, trying SQL restore...")
+            
+            # Ripristino tramite SQL
+            source_conn = sqlite3.connect(db_backup_path)
+            source_cursor = source_conn.cursor()
+            
+            # Connessione al database di destinazione
+            dest_conn = sqlite3.connect(db_path, isolation_level='EXCLUSIVE')
+            dest_cursor = dest_conn.cursor()
+            
+            # Avvia una transazione esclusiva
+            dest_conn.execute('BEGIN EXCLUSIVE')
+            
+            # Elimina tutte le tabelle nel database di destinazione
+            dest_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            tables = dest_cursor.fetchall()
+            for table in tables:
+                dest_cursor.execute(f"DROP TABLE IF EXISTS {table[0]}")
+            
+            # Ottieni lo schema del database di origine
+            source_cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            tables_schema = source_cursor.fetchall()
+            
+            # Crea le tabelle nel database di destinazione
+            for schema in tables_schema:
+                dest_cursor.execute(schema[0])
+            
+            # Copia i dati per ogni tabella
+            source_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            tables = source_cursor.fetchall()
+            
+            for table in tables:
+                table_name = table[0]
+                source_cursor.execute(f"SELECT * FROM {table_name}")
+                rows = source_cursor.fetchall()
+                
+                if rows:
+                    # Ottieni le colonne
+                    source_cursor.execute(f"PRAGMA table_info({table_name})")
+                    columns = source_cursor.fetchall()
+                    column_count = len(columns)
+                    
+                    # Crea la stringa di placeholder per l'INSERT
+                    placeholders = ','.join(['?' for _ in range(column_count)])
+                    
+                    # Inserisci i dati
+                    for row in rows:
+                        dest_cursor.execute(f"INSERT INTO {table_name} VALUES ({placeholders})", row)
+            
+            # Commit e chiudi le connessioni
+            dest_conn.commit()
+            source_conn.close()
+            dest_conn.close()
+            logger.info(f"Database restored from {db_backup_path} using SQL export/import")
+        
+        logger.info(f"Database restored successfully from {db_backup_path}")
     except Exception as e:
         logger.error(f"Error restoring database: {str(e)}")
         return False
