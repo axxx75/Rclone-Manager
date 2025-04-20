@@ -115,7 +115,7 @@ You can customize default settings by:
 
 ## File structure
 
-See [File strutcture](https://github.com/axxx75/Rclone-Mananget/FILE_STRUCTURE.md) of application 
+See [File strutcture](./FILE_STRUCTURE.md) of application 
 
 ## Contributing
 
@@ -123,4 +123,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT [LICENSE](https://github.com/axxx75/Rclone-Manager#)
+MIT [LICENSE](./LICENSE)
