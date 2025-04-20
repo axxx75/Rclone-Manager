@@ -21,8 +21,11 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "default-secret-key-for-development")
 
-# Configure SQLite database
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///rclone_manager.db"
+# Ensure instance folder exists
+os.makedirs(app.instance_path, exist_ok=True)
+
+# Configure SQLite database in the instance folder - using relative path
+app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.path.join(app.instance_path, 'rclone_manager.db')}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # Initialize database
@@ -1436,4 +1439,3 @@ def upload_backup():
         flash(f"Errore durante il caricamento del backup: {str(e)}", "danger")
     
     return redirect(url_for("backup"))
-
