@@ -26,6 +26,7 @@ Key Features:
   ```
 
 ## Installation and start application
+Assuming you install under the /opt directory:
 
 1. Clone this repository
   ```
