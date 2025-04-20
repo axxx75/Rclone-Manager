@@ -6,17 +6,12 @@
 
 A Flask web application to reliably manage rclone sync jobs.
 
-Key Features
-
-Create and manage synchronization jobs
-
-Automatic job scheduling with cron expressions
-
-Detailed logs and advanced log search
-
-Browser notifications for important job events
-
-Advanced user interface with filters and pagination
+Key Features:
+* Create and manage synchronization jobs
+* Automatic job scheduling with cron expressions
+* Detailed logs and advanced log search
+* Browser notifications for important job events
+* Advanced user interface with filters and pagination
 
 ## Requirements
 
