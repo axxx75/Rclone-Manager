@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RClone Manager</title>
+
+    <link rel="icon" href="{{ url_for('static', filename='logo_alfa.ico') }}?v=1.0">
+
     <!-- Bootstrap CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-agent-dark-theme.min.css') }}">
     <!-- Font Awesome for icons -->
@@ -58,6 +61,11 @@
                                     <i class="fas fa-cog"></i> Configurazione
                                 </a>
                             </li>
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('backup') }}">
+                                    <i class="fas fa-database"></i> Backup &amp; Restore
+                                </a>
+                            </li>
                             <li><hr class="dropdown-divider"></li>
                             <li>
                                 <a class="dropdown-item" href="{{ url_for('clean_all_jobs') }}" onclick="return confirm('Sei sicuro di voler ripulire tutti i job in esecuzione? Questo cancellerà eventuali job running che sono bloccati.');">
@@ -72,7 +80,7 @@
                         </ul>
                     </li>
                 </ul>
-
+                
                 <!-- Notification dropdown -->
                 <ul class="navbar-nav">
                     <li class="nav-item dropdown">
@@ -99,7 +107,7 @@
                             </a>
                         </div>
                     </li>
-
+                    
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('user_settings') }}">
                             <i class="fas fa-cog"></i>
@@ -129,14 +137,15 @@
 
     <footer class="footer mt-5 py-3 bg-dark">
         <div class="container text-center">
-            <span class="text-muted">RClone Manager &copy; {{ now.year }} - AlFa-Tech</span>
+            <span class="text-muted">RClone Manager &copy; {{ now.year }} - AlFa - Tech </span>
         </div>
     </footer>
 
     <!-- Bootstrap JS Bundle with Popper -->
-    <script src="./static/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
     <!-- Custom JS -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>
+

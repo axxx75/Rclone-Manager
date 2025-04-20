@@ -1,6 +1,7 @@
 import os
 import logging
 import time
+import json
 import threading
 from threading import Thread
 from datetime import datetime, timedelta
@@ -10,6 +11,7 @@ from utils.rclone_handler import RCloneHandler
 from utils.scheduler import JobScheduler
 from utils.notification_manager import get_notifications, mark_notification_read, mark_all_read, add_notification
 from utils.notification_manager import notify_job_started, notify_job_completed, get_user_settings, update_settings
+from utils.backup_manager import create_backup as create_backup_func, list_backups, restore_backup, delete_backup, setup_auto_backup, get_backup_dir
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -25,6 +27,10 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # Initialize database
 db.init_app(app)
+
+# Create database tables if they don't exist
+with app.app_context():
+    db.create_all()
 
 # Initialize RClone handler - use current directory for logs in Replit environment
 RCLONE_CONFIG_PATH = os.environ.get("RCLONE_CONFIG_PATH", "./data/rclone_scheduled.conf")
@@ -73,7 +79,12 @@ def check_orphaned_jobs():
                             with open(job.log_file, 'r') as f:
                                 log_content = f.read()
                                 # Cerca indicazioni di errore nel log
-                                if "ERROR" in log_content.upper() or "FATAL" in log_content.upper():
+                                # Controlliamo i messaggi di errore in diversi formati comuni
+                                if ("ERROR" in log_content.upper() or 
+                                    "FATAL" in log_content.upper() or 
+                                    "ERROR :" in log_content or 
+                                    "NOTICE: Failed" in log_content or
+                                    "Errors:" in log_content and "0)" not in log_content.split("Errors:")[1].split("\n")[0]):
                                     job.status = "error"
                                     logger.info(f"Job {job.id} terminated with errors")
                                 else:
@@ -113,8 +124,45 @@ def force_cleanup_jobs():
             cleaned_count = 0
             
             for job in running_jobs:
-                # Forza il reset dello stato
-                job.status = "completed"
+                # Determina lo stato corretto in base ai log e all'exit_code
+                if job.log_file and os.path.exists(job.log_file):
+                    try:
+                        with open(job.log_file, 'r') as f:
+                            log_content = f.read()
+                            # Cerca indicazioni di errore nel log
+                            # Controlliamo i messaggi di errore in diversi formati comuni
+                            # Usiamo criteri più restrittivi per evitare falsi positivi
+                            if (
+                                (" ERROR " in log_content.upper() or " ERROR:" in log_content.upper()) or 
+                                (" FATAL " in log_content.upper() or " FATAL:" in log_content.upper()) or
+                                "NOTICE: Failed" in log_content or
+                                ("Errors:" in log_content and "0)" not in log_content.split("Errors:")[1].split("\n")[0])
+                            ):
+                                # Manteniamo il job come successo se non ci sono veri errori o
+                                # se il job ha riguardato 0 file (nothing to transfer)
+                                if "There was nothing to transfer" in log_content:
+                                    # Non consideriamo un errore il caso "nothing to transfer"
+                                    job.status = "completed"
+                                    logger.info(f"Forced cleanup job {job.id} marked as completed (nothing to transfer)")
+                                else:
+                                    job.status = "error"
+                                    logger.info(f"Forced cleanup job {job.id} marked as error based on log content")
+                            else:
+                                job.status = "completed"
+                                logger.info(f"Forced cleanup job {job.id} marked as completed")
+                    except Exception as e:
+                        logger.error(f"Error reading log file for forced cleanup job {job.id}: {str(e)}")
+                        # In caso di errore di lettura, assumiamo completato con errore
+                        job.status = "error"
+                else:
+                    # Se non abbiamo log file, controlliamo l'exit_code
+                    if job.exit_code is not None and job.exit_code != 0:
+                        job.status = "error"
+                        logger.info(f"Forced cleanup job {job.id} marked as error based on exit code {job.exit_code}")
+                    else:
+                        job.status = "completed"
+                        logger.info(f"Forced cleanup job {job.id} marked as completed (no log file)")
+                
                 job.end_time = datetime.now() if not job.end_time else job.end_time
                 
                 # Rimuovi i file di lock associati
@@ -232,8 +280,43 @@ def index():
                     tag = rclone_handler._generate_tag(job.source, job.target)
                     lock_file = f"{LOG_DIR}/sync_{tag}.lock"
                     if not os.path.exists(lock_file):
-                        # Aggiorna lo stato del job a "completed"
-                        job.status = "completed"
+                        # Verifica se il job ha prodotto errori dal log file
+                        if job.log_file and os.path.exists(job.log_file):
+                            try:
+                                with open(job.log_file, 'r') as f:
+                                    log_content = f.read()
+                                    # Cerca indicazioni di errore nel log
+                                    # Controlliamo i messaggi di errore in diversi formati comuni
+                                    # Utilizziamo gli stessi criteri più restrittivi
+                                    if (
+                                        (" ERROR " in log_content.upper() or " ERROR:" in log_content.upper()) or 
+                                        (" FATAL " in log_content.upper() or " FATAL:" in log_content.upper()) or
+                                        "NOTICE: Failed" in log_content or
+                                        ("Errors:" in log_content and "0)" not in log_content.split("Errors:")[1].split("\n")[0])
+                                    ):
+                                        # Escludiamo il caso "nothing to transfer"
+                                        if "There was nothing to transfer" in log_content:
+                                            job.status = "completed"
+                                            logger.info(f"Ghost job {job.id} marked as completed (nothing to transfer)")
+                                        else:
+                                            job.status = "error"
+                                            logger.info(f"Ghost job {job.id} marked as error based on log content")
+                                    else:
+                                        job.status = "completed"
+                                        logger.info(f"Ghost job {job.id} marked as completed")
+                            except Exception as e:
+                                logger.error(f"Error reading log file for ghost job {job.id}: {str(e)}")
+                                # In caso di errore nella lettura del log, assumiamo completato con errore
+                                job.status = "error"
+                        else:
+                            # Se non abbiamo log file, controlliamo se il job ha un exit_code
+                            if job.exit_code is not None and job.exit_code != 0:
+                                job.status = "error"
+                                logger.info(f"Ghost job {job.id} marked as error based on exit code {job.exit_code}")
+                            else:
+                                job.status = "completed"
+                                logger.info(f"Ghost job {job.id} marked as completed (no log file)")
+                        
                         job.end_time = datetime.now() if not job.end_time else job.end_time
                         db.session.commit()
                         logger.info(f"Auto-fixed ghost job: {job.id} {job.source} → {job.target}")
@@ -555,7 +638,7 @@ def job_status(job_id):
     # Restituisci anche la durata aggiornata e altre informazioni utili
     return jsonify({
         "status": status,
-        "duration": job.duration_formatted,
+        "duration": job.duration_formatted(),
         "end_time": job.end_time.strftime('%Y-%m-%d %H:%M:%S') if job.end_time else None
     })
 
@@ -1134,4 +1217,223 @@ def search_logs():
         results=results,
         searched=searched
     )
+
+
+@app.route("/backup")
+def backup():
+    """View and manage database backups"""
+    # Ottieni la lista dei backup
+    backups = list_backups(app)
+    
+    # Ottieni le impostazioni di backup automatico
+    user_settings = get_user_settings()
+    settings = user_settings.settings
+    
+    auto_backup_enabled = settings.get('auto_backup_enabled', False)
+    auto_backup_interval = settings.get('auto_backup_interval', 24)
+    auto_backup_keep = settings.get('auto_backup_keep', 5)
+    
+    return render_template(
+        "backup.html",
+        backups=backups,
+        auto_backup_enabled=auto_backup_enabled,
+        auto_backup_interval=auto_backup_interval,
+        auto_backup_keep=auto_backup_keep
+    )
+
+
+@app.route("/create_backup", methods=["POST"])
+def create_backup():
+    """Create a new database backup"""
+    backup_name = request.form.get("backup_name", "").strip()
+    
+    try:
+        # Crea il backup
+        backup_info = create_backup_func(app, backup_name if backup_name else None)
+        flash(f"Backup creato con successo: {backup_info['name']}", "success")
+        add_notification("Backup creato", f"Backup del database creato con successo: {backup_info['name']}", "success")
+    except Exception as e:
+        logger.error(f"Error creating backup: {str(e)}")
+        flash(f"Errore durante la creazione del backup: {str(e)}", "danger")
+        add_notification("Errore backup", f"Errore durante la creazione del backup: {str(e)}", "error")
+    
+    return redirect(url_for("backup"))
+
+
+@app.route("/restore_backup", methods=["POST"])
+def restore_backup_route():
+    """Restore a database backup"""
+    backup_name = request.form.get("backup_name")
+    
+    if not backup_name:
+        flash("Nome del backup non specificato", "danger")
+        return redirect(url_for("backup"))
+    
+    try:
+        # Ripristina il backup
+        if restore_backup(app, backup_name):
+            flash(f"Backup ripristinato con successo: {backup_name}", "success")
+            add_notification("Backup ripristinato", f"Backup del database ripristinato con successo: {backup_name}", "success")
+        else:
+            flash(f"Errore durante il ripristino del backup: {backup_name}", "danger")
+            add_notification("Errore ripristino", f"Errore durante il ripristino del backup: {backup_name}", "error")
+    except Exception as e:
+        logger.error(f"Error restoring backup: {str(e)}")
+        flash(f"Errore durante il ripristino del backup: {str(e)}", "danger")
+        add_notification("Errore ripristino", f"Errore durante il ripristino del backup: {str(e)}", "error")
+    
+    return redirect(url_for("backup"))
+
+
+@app.route("/delete_backup", methods=["POST"])
+def delete_backup_route():
+    """Delete a database backup"""
+    backup_name = request.form.get("backup_name")
+    
+    if not backup_name:
+        flash("Nome del backup non specificato", "danger")
+        return redirect(url_for("backup"))
+    
+    try:
+        # Elimina il backup
+        if delete_backup(app, backup_name):
+            flash(f"Backup eliminato con successo: {backup_name}", "success")
+        else:
+            flash(f"Errore durante l'eliminazione del backup: {backup_name}", "danger")
+    except Exception as e:
+        logger.error(f"Error deleting backup: {str(e)}")
+        flash(f"Errore durante l'eliminazione del backup: {str(e)}", "danger")
+    
+    return redirect(url_for("backup"))
+
+
+@app.route("/backup_settings", methods=["POST"])
+def backup_settings():
+    """Save backup settings"""
+    auto_backup_enabled = request.form.get("auto_backup_enabled") == "on"
+    
+    try:
+        auto_backup_interval = int(request.form.get("auto_backup_interval", "24"))
+        auto_backup_keep = int(request.form.get("auto_backup_keep", "5"))
+    except ValueError:
+        flash("Valori numerici non validi per intervallo o numero di backup", "danger")
+        return redirect(url_for("backup"))
+    
+    # Valida i valori
+    if auto_backup_interval < 1 or auto_backup_interval > 168:
+        auto_backup_interval = 24
+    
+    if auto_backup_keep < 1 or auto_backup_keep > 50:
+        auto_backup_keep = 5
+    
+    # Salva le impostazioni
+    settings = {
+        'auto_backup_enabled': auto_backup_enabled,
+        'auto_backup_interval': auto_backup_interval,
+        'auto_backup_keep': auto_backup_keep
+    }
+    
+    user_settings = update_settings(other_settings=settings)
+    
+    # Configura il backup automatico se abilitato
+    if auto_backup_enabled:
+        # Avvia il thread di backup automatico
+        setup_auto_backup(app, auto_backup_interval)
+        flash(f"Backup automatico configurato ogni {auto_backup_interval} ore", "success")
+    
+    flash("Impostazioni di backup salvate con successo", "success")
+    return redirect(url_for("backup"))
+
+
+@app.route("/download_backup", methods=["POST"])
+def download_backup():
+    """Download a backup file"""
+    backup_name = request.form.get("backup_name")
+    
+    if not backup_name:
+        flash("Nome del backup non specificato", "danger")
+        return redirect(url_for("backup"))
+    
+    try:
+        # Trova il backup
+        backups = list_backups(app)
+        backup_info = None
+        
+        for backup in backups:
+            if backup['name'] == backup_name:
+                backup_info = backup
+                break
+        
+        if not backup_info:
+            flash(f"Backup non trovato: {backup_name}", "danger")
+            return redirect(url_for("backup"))
+        
+        # Ottieni il percorso del file di database
+        db_path = backup_info.get('database')
+        
+        if not db_path or not os.path.exists(db_path):
+            flash("File di backup non trovato", "danger")
+            return redirect(url_for("backup"))
+        
+        # Invia il file come attachment
+        return send_from_directory(
+            os.path.dirname(db_path),
+            os.path.basename(db_path),
+            as_attachment=True,
+            download_name=f"rclone_manager_backup_{backup_name}.db"
+        )
+    
+    except Exception as e:
+        logger.error(f"Error downloading backup: {str(e)}")
+        flash(f"Errore durante il download del backup: {str(e)}", "danger")
+        return redirect(url_for("backup"))
+
+
+@app.route("/upload_backup", methods=["POST"])
+def upload_backup():
+    """Upload a backup file"""
+    if 'backup_file' not in request.files:
+        flash("Nessun file selezionato", "danger")
+        return redirect(url_for("backup"))
+    
+    backup_file = request.files['backup_file']
+    
+    if backup_file.filename == '':
+        flash("Nessun file selezionato", "danger")
+        return redirect(url_for("backup"))
+    
+    try:
+        # Crea una directory temporanea per il backup caricato
+        backup_dir = get_backup_dir(app)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_name = f"uploaded_backup_{timestamp}"
+        backup_path = os.path.join(backup_dir, backup_name)
+        os.makedirs(backup_path, exist_ok=True)
+        
+        # Salva il file caricato
+        db_filename = os.path.basename(app.config["SQLALCHEMY_DATABASE_URI"].replace("sqlite:///", ""))
+        db_backup_path = os.path.join(backup_path, db_filename)
+        backup_file.save(db_backup_path)
+        
+        # Crea il file di metadata
+        backup_info = {
+            'timestamp': timestamp,
+            'name': backup_name,
+            'database': db_backup_path,
+            'configs': {},
+            'path': backup_path,
+            'uploaded': True
+        }
+        
+        # Salva il file di metadata
+        with open(os.path.join(backup_path, 'backup_info.json'), 'w') as f:
+            json.dump(backup_info, f, indent=2)
+        
+        flash(f"Backup caricato con successo: {backup_name}", "success")
+        
+    except Exception as e:
+        logger.error(f"Error uploading backup: {str(e)}")
+        flash(f"Errore durante il caricamento del backup: {str(e)}", "danger")
+    
+    return redirect(url_for("backup"))
 

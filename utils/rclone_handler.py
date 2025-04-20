@@ -167,6 +167,9 @@ class RCloneHandler:
     
     def run_custom_job(self, source, target, dry_run=False):
         """Run a custom job with source and target"""
+        # Puliamo eventuali spazi extra nelle sorgenti/destinazioni
+        source = source.strip()
+        target = target.strip()
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         tag = self._generate_tag(source, target)
         log_file = f"{self.log_dir}/sync_{timestamp}_{tag}.log"
@@ -279,8 +282,26 @@ class RCloneHandler:
         # Add user-requested default flags
         cmd[-1] += " --metadata --use-server-modtime --gcs-bucket-policy-only"
         
+        # Prepara il comando esatto con tutti gli argomenti
+        full_command = cmd[-1]
+        
         # Log the complete command being executed
-        logger.info(f"Executing command: {cmd[-1]}")
+        logger.info(f"Executing command: {full_command}")
+        
+        # Scrivi il comando completo direttamente nel file di log
+        try:
+            with open(log_file, 'w') as f:
+                f.write(f"=============== COMANDO RCLONE ESEGUITO ===============\n")
+                f.write(f"{full_command}\n")
+                f.write(f"======================================================\n\n")
+                
+            # Verifica che il contenuto sia stato effettivamente scritto
+            with open(log_file, 'r') as f:
+                file_content = f.read(100)  # Leggi i primi 100 caratteri 
+                if "COMANDO RCLONE ESEGUITO" not in file_content:
+                    logger.error(f"Il comando non è stato scritto nel file di log correttamente: {log_file}")
+        except Exception as e:
+            logger.error(f"Errore durante la scrittura del comando nel file di log: {str(e)}")
         
         # Crea un ambiente senza variabili proxy
         my_env = os.environ.copy()
@@ -289,20 +310,27 @@ class RCloneHandler:
                 del my_env[proxy_var]
                 logger.info(f"Unset proxy variable: {proxy_var}")
         
-        # Start process with clean environment
+        # Modifica: utilizza il parametro shell=True per assicurarci di ottenere l'exit code corretto
+        # quando rclone incontra errori (come directory non trovate)
         process = subprocess.Popen(
-            cmd, 
+            full_command,  # Passiamo il comando completo come stringa 
+            shell=True,  # Eseguiamo tramite shell per una gestione migliore degli errori
             stdout=subprocess.PIPE, 
             stderr=subprocess.STDOUT, 
             universal_newlines=True,  # Equivalente a text=True nelle versioni più recenti
             env=my_env
         )
         
+        logger.info(f"Started rclone process with PID {process.pid}")
+        
         # Create lock file
         with open(lock_file, 'w') as f:
             f.write(str(process.pid))
         
         logger.info(f"Created lock file: {lock_file} for PID {process.pid}")
+        
+        # Nota: il comando è già stato salvato all'inizio del file di log
+        # Non è necessario ripeterlo qui
         
         # Store job info
         job_info = {
@@ -337,6 +365,9 @@ class RCloneHandler:
     
     def _monitor_job(self, job_key):
         """Monitor a running job and clean up when done"""
+        import os  # Importiamo os esplicitamente all'interno della funzione
+        import sys
+        
         if job_key not in self.active_jobs:
             return
         
@@ -358,9 +389,95 @@ class RCloneHandler:
         job['end_time'] = datetime.now()
         job['exit_code'] = process.returncode
         
-        # Log completion
-        status = "completed successfully" if process.returncode == 0 else f"failed with exit code {process.returncode}"
+        # Verifica se il job ha prodotto errori nei log
+        success = process.returncode == 0
+        if success and job.get('log_file') and os.path.exists(job.get('log_file')):
+            try:
+                with open(job.get('log_file'), 'r') as f:
+                    log_content = f.read()
+                    # Controlla se ci sono indicazioni di errore nei log, anche se l'exit code è 0
+                    # Rclone a volte termina con successo anche se ci sono stati errori
+                    # Verifichiamo il contenuto escludendo le righe di INFO
+                    if (
+                        (" ERROR " in log_content.upper() or " ERROR:" in log_content.upper()) or 
+                        (" FATAL " in log_content.upper() or " FATAL:" in log_content.upper()) or
+                        "NOTICE: Failed" in log_content or
+                        ("Errors:" in log_content and "0)" not in log_content.split("Errors:")[1].split("\n")[0])
+                    ):
+                        # Manteniamo il job come successo se il messaggio di errore è solo informativo
+                        # o se il job ha riguardato 0 file (nothing to transfer)
+                        if "There was nothing to transfer" in log_content:
+                            # Non consideriamo un errore il caso "nothing to transfer"
+                            logger.info(f"Job reported 'nothing to transfer' - keeping as success")
+                        else:
+                            success = False
+                            logger.warning(f"Job exit code was 0 but errors found in log, marking as failed")
+            except Exception as e:
+                logger.error(f"Error reading log file for job completion: {str(e)}")
+        
+        status = "completed successfully" if success else f"failed with exit code {process.returncode}"
         logger.info(f"Job {job['source']} → {job['target']} {status}")
+        
+        # Registra anche l'exit code nel file di log per riferimento futuro
+        if job.get('log_file') and os.path.exists(job.get('log_file')):
+            try:
+                with open(job.get('log_file'), 'a') as f:
+                    f.write(f"\n\n=============== RISULTATO DEL JOB ===============\n")
+                    f.write(f"Exit code: {process.returncode}\n")
+                    if success:
+                        f.write(f"Status: Completato con successo\n")
+                    else:
+                        f.write(f"Status: Completato con errori\n")
+                    f.write(f"Data/ora fine: {job['end_time'].strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"======================================================\n")
+                logger.info(f"Updated log file with job result information")
+            except Exception as e:
+                logger.error(f"Error updating log file with job result: {str(e)}")
+        
+        # Aggiorna il database e invia notifica di completamento
+        try:
+            # Utilizziamo una soluzione più robusta che non richiede un contesto Flask attivo
+            # Eseguiamo una chiamata diretta al modulo models importandolo nel contesto attuale
+            import sys
+            import os
+            
+            # Aggiungiamo la directory principale al path per l'import
+            app_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            if app_dir not in sys.path:
+                sys.path.insert(0, app_dir)
+            
+            # Importiamo i moduli necessari
+            from models import SyncJobHistory, db
+            from app import app  # Import diretto dell'app Flask
+            from utils.notification_manager import notify_job_completed
+            
+            # Utilizziamo il contesto dell'app esplicitamente
+            with app.app_context():
+                # Trova il job nel database
+                history_job = SyncJobHistory.query.filter_by(
+                    source=job['source'],
+                    target=job['target'],
+                    status="running",
+                    log_file=job['log_file']
+                ).first()
+                
+                if history_job:
+                    # Aggiorna lo stato
+                    history_job.status = "completed" if success else "error"
+                    history_job.end_time = job['end_time']
+                    history_job.exit_code = job['exit_code']
+                    db.session.commit()
+                    
+                    # Invia notifica di completamento
+                    duration = (job['end_time'] - job['start_time']).total_seconds()
+                    notify_job_completed(history_job.id, job['source'], job['target'], 
+                                        success=success, duration=duration)
+                    
+                    logger.info(f"Successfully updated job status in database to {'completed' if success else 'error'}")
+                else:
+                    logger.warning(f"No database entry found for job {job_key}")
+        except Exception as e:
+            logger.error(f"Error updating job status in database: {str(e)}")
         
         # Remove from active jobs after a delay
         time.sleep(60)  # Keep in active jobs list for 1 minute after completion
@@ -374,6 +491,10 @@ class RCloneHandler:
         Args:
             include_db_jobs: Se True, include anche i job segnati come running nel database
         """
+        # Import necessari per il contesto esterno alla funzione
+        import os
+        import sys
+        
         # Clean up any dead jobs
         job_keys = list(self.active_jobs.keys())
         for job_key in job_keys:
@@ -398,11 +519,18 @@ class RCloneHandler:
         # Se richiesto, aggiungi anche i job segnati come running nel database
         if include_db_jobs:
             try:
-                # Importiamo qui per evitare dipendenze circolari
-                from flask import current_app
-                with current_app.app_context():
-                    from models import SyncJobHistory, db
-                    
+                # Utilizziamo una soluzione più robusta che non richiede un contesto Flask attivo
+                # Aggiungiamo la directory principale al path per l'import
+                app_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+                if app_dir not in sys.path:
+                    sys.path.insert(0, app_dir)
+                
+                # Importiamo i moduli necessari
+                from models import SyncJobHistory, db
+                from app import app  # Import diretto dell'app Flask
+                
+                # Utilizziamo il contesto dell'app esplicitamente
+                with app.app_context():
                     # Ottieni tutti i job in stato "running" dal database
                     running_jobs = SyncJobHistory.query.filter_by(status="running").all()
                     
@@ -435,9 +563,14 @@ class RCloneHandler:
                                     })
                             else:
                                 # Il file di lock non esiste più, aggiorniamo lo stato del job
-                                db_job.status = "completed"
+                                # Se il job non ha un file di lock ma è in stato running, probabilmente
+                                # si è interrotto inaspettatamente, quindi lo marchiamo come error
+                                db_job.status = "error"
                                 if not db_job.end_time:  # Se end_time non è già impostato
                                     db_job.end_time = datetime.now()
+                                if not db_job.exit_code:  # Se exit_code non è impostato
+                                    db_job.exit_code = -1  # Codice di errore generico
+                                logger.warning(f"Job {db_job.id} ({db_job.source} → {db_job.target}) in stato running senza file di lock, marcato come error")
                                 db.session.commit()
             except Exception as e:
                 logger.error(f"Error getting database running jobs: {str(e)}")
@@ -451,6 +584,10 @@ class RCloneHandler:
         - Verifica l'esistenza del file di lock (e la sua validità)
         - Controlla nel database se presente
         """
+        # Import necessari per il contesto esterno alla funzione
+        import sys
+        # os è già importato a livello globale
+        
         job_key = f"{source}|{target}"
         
         # Verifica nei job attivi nell'handler
@@ -483,17 +620,22 @@ class RCloneHandler:
             
         # Verifica anche nel database se c'è un job attivo
         try:
-            from flask import current_app
+            # Utilizziamo una soluzione più robusta che non richiede un contesto Flask attivo
+            # Eseguiamo una chiamata diretta al modulo models importandolo nel contesto attuale
+            import sys
+            import os
             
-            try:
-                app_context = current_app.app_context()
-            except RuntimeError:
-                # Se non siamo in un contesto Flask, ritorna il risultato basato solo sui file di lock
-                return False
-                
-            with app_context:
-                from models import SyncJobHistory
-                
+            # Aggiungiamo la directory principale al path per l'import
+            app_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            if app_dir not in sys.path:
+                sys.path.insert(0, app_dir)
+            
+            # Importiamo i moduli necessari
+            from models import SyncJobHistory, db
+            from app import app  # Import diretto dell'app Flask
+            
+            # Utilizziamo il contesto dell'app esplicitamente
+            with app.app_context():
                 # Cerca job attivi con lo stesso source/target
                 running_jobs = SyncJobHistory.query.filter_by(
                     source=source,

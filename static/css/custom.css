@@ -1,5 +1,26 @@
 /* Custom CSS for improved contrast ONLY in log pages */
 
+/* Rimuovi outline blu dai cerchi di progresso e dai loro contenitori */
+.progress-ring-container,
+.progress-ring-container *,
+.job-status-cell,
+.job-status-cell:focus,
+.job-status-cell:active,
+.job-status-cell:hover,
+circle,
+svg,
+.progress-ring {
+    outline: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Rimuovi effetto di selezione per le celle di stato dei job */
+.job-status-cell {
+    -webkit-tap-highlight-color: transparent !important;
+    user-select: none !important;
+}
+
 /* Stile solo per elementi di visualizzazione log */
 .log-content pre,
 .log-content code,
