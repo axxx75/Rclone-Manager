@@ -7,11 +7,13 @@
     <h2 class="mb-4"><i class="fas fa-search me-2"></i>Ricerca nei log</h2>
     
     <div class="card mb-4">
-        <div class="card-header bg-light">
-            <div class="d-flex justify-content-between align-items-center">
-                <span><i class="fas fa-filter me-2"></i>Filtri di ricerca</span>
-            </div>
-        </div>
+
+       <div class="card-header bg-primary text-white">
+           <h3 class="mb-0">
+               <i class="fas fa-filter me-2"></i> Filtri di ricerca
+           </h3>
+       </div>
+
         <div class="card-body">
             <form method="get" action="{{ url_for('search_logs') }}" id="searchForm">
                 <div class="row g-3">
@@ -79,7 +81,7 @@
     
     {% if results %}
     <div class="card">
-        <div class="card-header bg-light">
+        <div class="card-header bg-primary text-white">
             <div class="d-flex justify-content-between align-items-center">
                 <span><i class="fas fa-list me-2"></i>Risultati della ricerca</span>
                 <span class="badge bg-secondary">{{ results|length }} trovati</span>
@@ -112,14 +114,16 @@
             </div>
             
             {% if results|length >= filters.max_results %}
-            <div class="alert alert-warning m-3">
+
+            <div class="alert bg-primary text-white">
                 <i class="fas fa-exclamation-triangle me-2"></i>È stato raggiunto il limite massimo di risultati ({{ filters.max_results }}). Affina la tua ricerca per vedere tutti i risultati.
             </div>
             {% endif %}
         </div>
     </div>
     {% elif searched %}
-    <div class="alert alert-info">
+
+    <div class="alert bg-primary text-white">
         <i class="fas fa-info-circle me-2"></i>Nessun risultato trovato per i criteri di ricerca specificati.
     </div>
     {% endif %}

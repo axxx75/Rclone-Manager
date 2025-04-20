@@ -1,23 +1,29 @@
 #!/bin/bash
-#source /opt/Rclone-Manager/venv/bin/activate
-
 # Script di avvio per l'intero sistema
+
+# Ottieni la directory dello script
+BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+LOG_DIR="$BASE_DIR/data/logs"
+
+# Assicurati che la cartella di log esista
+mkdir -p "$LOG_DIR"
+
 # Avvia lo scheduler in background
-echo "Avvio scheduler..."
-nohup python scheduler_runner.py > scheduler.log 2>&1 &
+echo "🚀 Start Scheduler..."
+nohup python "$BASE_DIR/scheduler_runner.py" > "$LOG_DIR/scheduler.log" 2>&1 &
 SCHEDULER_PID=$!
-echo "Scheduler avviato con PID: $SCHEDULER_PID"
+echo "✅ Scheduler started with PID: $SCHEDULER_PID"
 
 # Attendi un po' per verificare che lo scheduler sia avviato correttamente
 sleep 2
 if ! ps -p $SCHEDULER_PID > /dev/null; then
-    echo "ERRORE: Lo scheduler si è arrestato rapidamente, controlla scheduler.log per i dettagli"
-    cat scheduler.log
+    echo "❌ ERROR: Scheduler crashed quickly, please check log below:"
+    cat "$LOG_DIR/scheduler.log"
     exit 1
 fi
 
 # Avvia l'applicazione web
-echo "Avvio applicazione web..."
+echo "🌐 Start Web Application..."
 exec gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app \
---access-logfile /opt/Rclone-Manager/data/logs/access.log \
---error-logfile /opt/Rclone-Manager/data/logs/error.log
+  --access-logfile "$LOG_DIR/access.log" \
+  --error-logfile "$LOG_DIR/error.log"

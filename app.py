@@ -555,7 +555,7 @@ def job_status(job_id):
     # Restituisci anche la durata aggiornata e altre informazioni utili
     return jsonify({
         "status": status,
-        "duration": job.duration_formatted(),
+        "duration": job.duration_formatted,
         "end_time": job.end_time.strftime('%Y-%m-%d %H:%M:%S') if job.end_time else None
     })
 
