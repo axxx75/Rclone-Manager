@@ -586,7 +586,8 @@ class RCloneHandler:
         """
         # Import necessari per il contesto esterno alla funzione
         import sys
-        # os è già importato a livello globale
+        import os  # Reimportiamo os per garantire che sia disponibile nel contesto locale
+        import time  # Reimportiamo time per garantire che sia disponibile nel contesto locale
         
         job_key = f"{source}|{target}"
         
@@ -740,4 +741,3 @@ class RCloneHandler:
         except Exception as e:
             logger.error(f"Error saving main config file: {str(e)}")
             raise
-
