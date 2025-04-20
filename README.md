@@ -61,7 +61,7 @@ Configure the service:
   systemctl start rclone-manager
   ```
 
-## Gestione del servizio
+## Service Management
 
 - **Restart the service**:
   ```bash
@@ -108,10 +108,14 @@ You can customize default settings by:
 2. Usig Configuration from web interface
 3. Modifying config parameters in your own scripts
 
+## File structure
+
+See [File strutcture](https://github.com/axxx75/Rclone-Manager/FILE_STRUCTURE.md) of application 
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[MIT LICENSE](https://github.com/axxx75/Rclone-Manager/edit/main/LICENSE)
+[MIT LICENSE](https://github.com/axxx75/Rclone-Manager/LICENSE)
