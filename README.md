@@ -4,13 +4,14 @@
 
 # RClone Manager
 
-A robust Python wrapper for efficient bucket synchronization using rclone with enhanced features for:
+A Flask web application to reliably manage rclone sync jobs.
 
-- Checksum verification for data integrity
-- Performance tuning for unstable networks
-- Automatic retry mechanism with exponential backoff
-- Comprehensive error handling
-- Detailed logging and progress reporting
+Key Features
+Create and manage synchronization jobs
+Automatic job scheduling with cron expressions
+Detailed logs and advanced log search
+Browser notifications for important job events
+Advanced user interface with filters and pagination
 
 ## Requirements
 
