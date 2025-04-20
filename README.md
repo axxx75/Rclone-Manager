@@ -111,7 +111,7 @@ The application is very user friendly:
 
 You can customize default settings by:
 
-1. Customizing /root/.config/rclone/rclone.conf
+1. Customizing /root/.config/rclone/rclone.conf to configure "remote" yo
 2. Usig Configuration from web interface
 3. Modifying config parameters in your own scripts
 
