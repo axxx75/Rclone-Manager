@@ -110,7 +110,7 @@ You can customize default settings by:
 
 ## File structure
 
-See [File strutcture](https://github.com/axxx75/Rclone-Manager/FILE_STRUCTURE.md) of application 
+See [File strutcture](https://github.com/axxx75/Rclone-Manager#) of application 
 
 ## Contributing
 
