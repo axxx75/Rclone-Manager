@@ -73,7 +73,8 @@ Configure the service:
   sudo systemctl stop rclone-manager
   ```
 
- **Status of the service**:
+
+- **Status of the service**:
   ```bash
   sudo systemctl status rclone-manager
   ```
