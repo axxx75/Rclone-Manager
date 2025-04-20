@@ -94,10 +94,15 @@ sudo journalctl -u rclone-manager -e
 ## Usage
 
 The application is very user friendly:
+
 ![Home page](/img/index.png)
+
 ![Jobs page](/img/job.png)
+
 ![History page](/img/history.png)
+
 ![Configuration page](/img/configuration1.png)
+
 ![Configuration page](/img/configuration2.png)
 
 ## Configuration
@@ -110,7 +115,7 @@ You can customize default settings by:
 
 ## File structure
 
-See [File strutcture](https://github.com/axxx75/Rclone-Manager#) of application 
+See [File strutcture](https://github.com/axxx75/Rclone-Mananget/FILE_STRUCTURE.md) of application 
 
 ## Contributing
 
@@ -118,4 +123,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[MIT LICENSE](https://github.com/axxx75/Rclone-Manager/LICENSE)
+MIT [LICENSE](https://github.com/axxx75/Rclone-Manager#)
