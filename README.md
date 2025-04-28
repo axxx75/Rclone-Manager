@@ -111,10 +111,11 @@ The application is very user friendly:
 
 You can customize default settings by:
 
-1. To configure REMOTE: Customizing /root/.config/rclone/rclone.conf. You can also do it from the GUI, under the "Maintenance" - "Configuration" menu 
+1. To configure REMOTE: Customizing /root/.config/rclone/rclone.conf. You can also do it from the GUI, under the "Maintenance" - "Configuration" menu.
+  Detail to common provider at page [DETAIL_PROVIDER.md](./DETAIL_PROVIDER.md)
 2. To configure JOB: Customizing <INSTALL_DIR>/data/rclone_scheduled.conf. You can also do it from the GUI, under the "Manutenzione" - "Configurazione" menu 
 3. To configure CRONTAB: From GUI, in "Pianificazione" page
-4. To configure BACKUP DB: From GUI, under "Manutenzione" - "Backup & Restore"
+5. To configure BACKUP DB: From GUI, under "Manutenzione" - "Backup & Restore"
 
 ## File structure
 
