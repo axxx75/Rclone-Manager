@@ -123,4 +123,3 @@ class SyncJobHistory(db.Model):
             return f"{seconds/60:.1f}m"
         else:
             return f"{seconds/3600:.1f}h"
-

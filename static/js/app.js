@@ -172,9 +172,16 @@ function initializeActiveJobsPage() {
                 return response.json();
             })
             .then(data => {
+                // Salva i dati per usi futuri
+                window.apiData = data;
+                
                 if (data.active_jobs) {
                     updateActiveJobsTable(data.active_jobs);
                 }
+                
+                // Aggiorna eventuali avvisi di processi non tracciati
+                updateUntrackedProcessesWarning(data);
+                
                 updateLastUpdateTime();
             })
             .catch(error => {
@@ -182,6 +189,39 @@ function initializeActiveJobsPage() {
                 // In caso di errore, aggiorniamo comunque il timestamp
                 updateLastUpdateTime();
             });
+    }
+    
+    /**
+     * Aggiorna gli avvisi di processi non tracciati
+     */
+    function updateUntrackedProcessesWarning(data) {
+        const untrackedWarning = document.getElementById('untracked-processes-warning');
+        const untrackedWarningAlt = document.getElementById('untracked-processes-warning-alt');
+        
+        if (data.untracked_processes && data.untracked_processes > 0) {
+            const warningHtml = `
+                <div class="alert alert-warning mt-3" role="alert">
+                    <i class="fas fa-exclamation-triangle"></i> 
+                    <strong>Attenzione:</strong> Rilevati ${data.untracked_processes} processi rclone attivi sul sistema ma non tracciati dall'applicazione.
+                    <a href="/clean_all_jobs" class="alert-link">Esegui pulizia</a> per risolvere eventuali problemi di sincronizzazione.
+                </div>
+            `;
+            
+            if (untrackedWarning) {
+                untrackedWarning.innerHTML = warningHtml;
+                untrackedWarning.style.display = 'block';
+            }
+            
+            if (untrackedWarningAlt && (!data.active_jobs || data.active_jobs.length === 0)) {
+                untrackedWarningAlt.innerHTML = warningHtml;
+                untrackedWarningAlt.style.display = 'block';
+            } else if (untrackedWarningAlt) {
+                untrackedWarningAlt.style.display = 'none';
+            }
+        } else {
+            if (untrackedWarning) untrackedWarning.style.display = 'none';
+            if (untrackedWarningAlt) untrackedWarningAlt.style.display = 'none';
+        }
     }
     
     /**
@@ -284,6 +324,8 @@ function initializeActiveJobsPage() {
                         <code>${job.source}</code>
                         ${job.from_scheduler ? 
                           '<span class="badge bg-primary ms-1" title="Job avviato da pianificazione"><i class="fas fa-calendar-alt"></i> Pianificato</span>' : ''}
+                        ${job.recovered ? 
+                          '<span class="badge bg-warning ms-1" title="Job recuperato automaticamente"><i class="fas fa-recycle"></i> Recuperato</span>' : ''}
                     </td>
                     <td><code>${job.target}</code></td>
                     <td>${job.start_time}</td>
@@ -949,4 +991,3 @@ function initNotificationSystem() {
     // Avvia il polling per nuove notifiche
     startNotificationPolling();
 };
-

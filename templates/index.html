@@ -90,6 +90,11 @@
                                     <i class="fas fa-calendar-alt"></i> Pianificato
                                 </span>
                                 {% endif %}
+                                {% if job.recovered %}
+                                <span class="badge bg-warning ms-1" title="Job recuperato automaticamente">
+                                    <i class="fas fa-recycle"></i> Recuperato
+                                </span>
+                                {% endif %}
                             </td>
                             <td><code>{{ job.target }}</code></td>
                             <td>{{ job.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</td>

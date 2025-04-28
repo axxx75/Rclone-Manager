@@ -2,18 +2,18 @@
 
 {% block title %}Ricerca nei log - RClone Manager{% endblock %}
 
+{% block body_class %}search_logs{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <h2 class="mb-4"><i class="fas fa-search me-2"></i>Ricerca nei log</h2>
     
     <div class="card mb-4">
-
-       <div class="card-header bg-primary text-white">
-           <h3 class="mb-0">
-               <i class="fas fa-filter me-2"></i> Filtri di ricerca
-           </h3>
-       </div>
-
+        <div class="card-header bg-light">
+            <div class="d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-filter me-2"></i>Filtri di ricerca</span>
+            </div>
+        </div>
         <div class="card-body">
             <form method="get" action="{{ url_for('search_logs') }}" id="searchForm">
                 <div class="row g-3">
@@ -81,7 +81,7 @@
     
     {% if results %}
     <div class="card">
-        <div class="card-header bg-primary text-white">
+        <div class="card-header bg-light">
             <div class="d-flex justify-content-between align-items-center">
                 <span><i class="fas fa-list me-2"></i>Risultati della ricerca</span>
                 <span class="badge bg-secondary">{{ results|length }} trovati</span>
@@ -100,8 +100,8 @@
                         <small class="text-muted">{{ result.date }}</small>
                     </div>
                     
-                    <div class="log-content p-3 rounded" style="background-color: #212529;">
-                        <pre class="mb-0"><code style="color: #e9ecef;">{{ result.content|safe }}</code></pre>
+                    <div class="log-content p-3 rounded">
+                        <pre class="mb-0"><code>{{ result.content|safe }}</code></pre>
                     </div>
                     
                     <div class="mt-2">
@@ -114,16 +114,14 @@
             </div>
             
             {% if results|length >= filters.max_results %}
-
-            <div class="alert bg-primary text-white">
+            <div class="alert alert-warning m-3">
                 <i class="fas fa-exclamation-triangle me-2"></i>È stato raggiunto il limite massimo di risultati ({{ filters.max_results }}). Affina la tua ricerca per vedere tutti i risultati.
             </div>
             {% endif %}
         </div>
     </div>
     {% elif searched %}
-
-    <div class="alert bg-primary text-white">
+    <div class="alert alert-info">
         <i class="fas fa-info-circle me-2"></i>Nessun risultato trovato per i criteri di ricerca specificati.
     </div>
     {% endif %}

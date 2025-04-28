@@ -2,6 +2,8 @@
 
 {% block title %}Visualizza log - RClone Manager{% endblock %}
 
+{% block body_class %}view_log{% endblock %}
+
 {% block content %}
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -16,11 +18,11 @@
         </div>
     </div>
     
-    <div class="card">
-        <div class="card-header bg-primary text-white">
+    <div class="card mb-4">
+        <div class="card-header bg-light">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <strong><i class="fas fa-info-circle"></i> Informazioni sul job</strong>
+                    <strong><i class="fas fa-info-circle me-2"></i>Informazioni sul job</strong>
                 </div>
                 <div>
                     <span class="badge {% if job.status == 'completed' %}bg-success{% elif job.status == 'error' %}bg-danger{% elif job.status == 'running' %}bg-primary{% else %}bg-secondary{% endif %}">
@@ -60,9 +62,9 @@
     </div>
     
     <div class="card">
-        <div class="card-header bg-primary text-white">
+        <div class="card-header bg-light">
             <div class="d-flex justify-content-between align-items-center">
-                <span><strong><i class="fas fa-file-code me-2"></i>Contenuto del log </strong></span>
+                <span><i class="fas fa-file-code me-2"></i>Contenuto del log</span>
                 <div class="search-box">
                     <div class="input-group">
                         <input type="text" class="form-control form-control-sm" id="searchInput" placeholder="Cerca nel log...">

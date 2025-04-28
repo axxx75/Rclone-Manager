@@ -66,16 +66,53 @@ def inject_now():
     """Inject the current datetime into templates"""
     return {'now': datetime.now()}
 
-def check_orphaned_jobs():
-    """Check for jobs stuck in 'running' status and clean them up"""
+def check_orphaned_jobs(only_update_inactive=True, inactive_hours=3):
+    """Check for jobs stuck in 'running' status and clean them up
+    
+    Args:
+        only_update_inactive: Se True, aggiorna solo lo stato per i job veramente inattivi,
+                             senza interrompere quelli ancora attivi
+        inactive_hours: Numero di ore di inattività del log dopo le quali un job è considerato stale (default: 3)
+    """
     try:
         with app.app_context():
             running_jobs = SyncJobHistory.query.filter_by(status="running").all()
             
             for job in running_jobs:
-                # Verifica se il job è ancora in esecuzione
-                if not rclone_handler.is_job_running(job.source, job.target):
-                    # Se il job non è più in esecuzione, controlla se c'è stato un errore
+                # Se il job è ancora in esecuzione e only_update_inactive è True, lo ignoriamo
+                is_running = rclone_handler.is_job_running(job.source, job.target)
+                
+                # Se è in esecuzione ma only_update_inactive, controlliamo se il log è inattivo per troppo tempo
+                if is_running and only_update_inactive:
+                    # Se ha un log file, verifichiamo se è fermo da troppo tempo
+                    if job.log_file and os.path.exists(job.log_file):
+                        try:
+                            # Verifica l'età dell'ultimo aggiornamento del log file
+                            log_age_seconds = time.time() - os.path.getmtime(job.log_file)
+                            inactive_seconds = inactive_hours * 3600  # Converti ore in secondi
+                            
+                            if log_age_seconds > inactive_seconds:
+                                # Log fermo da più di inactive_hours ore, lo consideriamo stale
+                                logger.warning(f"Job {job.id} è attivo ma il log non è aggiornato da {log_age_seconds/3600:.1f} ore "
+                                              f"(limite: {inactive_hours} ore). Verrà considerato inattivo e corretto.")
+                                # Continuiamo con l'aggiornamento del job
+                            else:
+                                # Il job è attivo e il log è stato aggiornato di recente
+                                logger.debug(f"Job {job.id} ({job.source} → {job.target}) attivo con log aggiornato "
+                                           f"recentemente ({log_age_seconds/3600:.1f} ore fa), non verrà modificato")
+                                continue  # Skip questo job perché è realmente attivo
+                        except Exception as e:
+                            logger.error(f"Errore durante il controllo dell'età del log per job {job.id}: {str(e)}")
+                            # In caso di errore nella verifica, meglio essere cauti e non toccare il job
+                            continue
+                    else:
+                        # Non c'è log file, ma il job è attivo, lo lasciamo in pace
+                        logger.debug(f"Job {job.id} ({job.source} → {job.target}) ancora attivo, non verrà modificato")
+                        continue
+                
+                # Quando arriviamo qui, il job non è in esecuzione oppure vogliamo forzare l'aggiornamento
+                # Se il job non è più in esecuzione, controlla se c'è stato un errore
+                if not is_running:
                     # Cerchiamo di controllare il log file per determinare il risultato
                     if job.log_file and os.path.exists(job.log_file):
                         try:
@@ -83,13 +120,18 @@ def check_orphaned_jobs():
                                 log_content = f.read()
                                 # Cerca indicazioni di errore nel log
                                 # Controlliamo i messaggi di errore in diversi formati comuni
-                                if ("ERROR" in log_content.upper() or 
-                                    "FATAL" in log_content.upper() or 
-                                    "ERROR :" in log_content or 
+                                if ((" ERROR " in log_content.upper() or " ERROR:" in log_content.upper()) or 
+                                    (" FATAL " in log_content.upper() or " FATAL:" in log_content.upper()) or 
                                     "NOTICE: Failed" in log_content or
-                                    "Errors:" in log_content and "0)" not in log_content.split("Errors:")[1].split("\n")[0]):
-                                    job.status = "error"
-                                    logger.info(f"Job {job.id} terminated with errors")
+                                    ("Errors:" in log_content and "0)" not in log_content.split("Errors:")[1].split("\n")[0])):
+                                    
+                                    # Escludiamo il caso "nothing to transfer"
+                                    if "There was nothing to transfer" in log_content:
+                                        job.status = "completed"
+                                        logger.info(f"Job {job.id} completed successfully (nothing to transfer)")
+                                    else:
+                                        job.status = "error"
+                                        logger.info(f"Job {job.id} terminated with errors")
                                 else:
                                     job.status = "completed"
                                     logger.info(f"Job {job.id} completed successfully")
@@ -118,15 +160,54 @@ def check_orphaned_jobs():
     except Exception as e:
         logger.error(f"Error checking orphaned jobs: {str(e)}")
 
-def force_cleanup_jobs():
-    """Force cleanup of all jobs marked as running"""
+def force_cleanup_jobs(only_stale_jobs=True, inactive_hours=3):
+    """Force cleanup of all jobs marked as running
+    
+    Args:
+        only_stale_jobs: Se True, pulisce solo i job stale/inattivi, se False pulisce tutti
+        inactive_hours: Numero di ore di inattività del log dopo le quali un job è considerato stale (default: 3)
+        
+    Returns:
+        int: Numero di job che sono stati puliti
+    """
     try:
         with app.app_context():
             # Ottieni tutti i job in stato running
             running_jobs = SyncJobHistory.query.filter_by(status="running").all()
             cleaned_count = 0
+            cleaned_jobs = []  # Lista dei job puliti per aggiornare le pianificazioni
             
             for job in running_jobs:
+                # Se only_stale_jobs è True, verifichiamo se il job è ancora attivo
+                if only_stale_jobs:
+                    # Verifico che il processo sia realmente fermo prima di pulirlo
+                    # Verifica se il job è ancora attivo prima
+                    is_active = rclone_handler.is_job_running(job.source, job.target)
+                    
+                    # Se è attivo ma ha un log file, verifichiamo se è fermo da troppo tempo
+                    if is_active and job.log_file and os.path.exists(job.log_file):
+                        try:
+                            # Verifica l'età dell'ultimo aggiornamento del log file
+                            log_age_seconds = time.time() - os.path.getmtime(job.log_file)
+                            inactive_seconds = inactive_hours * 3600  # Converti ore in secondi
+                            
+                            if log_age_seconds > inactive_seconds:
+                                # Log fermo da più di inactive_hours ore, lo consideriamo stale
+                                logger.warning(f"Job {job.id} è attivo ma il log non è aggiornato da {log_age_seconds/3600:.1f} ore "
+                                              f"(limite: {inactive_hours} ore). Sarà considerato stale e terminato.")
+                                # Continua con la pulizia
+                            else:
+                                # Il job è attivo e il log è stato aggiornato di recente
+                                logger.debug(f"Job {job.id} {job.source} → {job.target} attivo con log aggiornato "
+                                           f"recentemente ({log_age_seconds/3600:.1f} ore fa), non verrà pulito")
+                                continue  # Skip questo job perché è realmente attivo
+                        except Exception as e:
+                            logger.error(f"Errore durante il controllo dell'età del log per job {job.id}: {str(e)}")
+                            # In caso di errore, meglio essere cauti e non toccare il job
+                            continue
+                    elif is_active:
+                        logger.debug(f"Job {job.id} {job.source} → {job.target} ancora attivo, non verrà pulito")
+                        continue  # Skip questo job perché è ancora attivo
                 # Determina lo stato corretto in base ai log e all'exit_code
                 if job.log_file and os.path.exists(job.log_file):
                     try:
@@ -168,23 +249,153 @@ def force_cleanup_jobs():
                 
                 job.end_time = datetime.now() if not job.end_time else job.end_time
                 
-                # Rimuovi i file di lock associati
-                tag = rclone_handler._generate_tag(job.source, job.target)
-                lock_file = f"{LOG_DIR}/sync_{tag}.lock"
-                if os.path.exists(lock_file):
+                # Rimuovi i file di lock associati (entrambi i formati)
+                # Nuovo formato
+                tag_new = rclone_handler._generate_tag(job.source, job.target)
+                lock_file_new = f"{LOG_DIR}/sync_{tag_new}.lock"
+                
+                # Vecchio formato
+                tag_old = f"{job.source.replace(':', '_').replace('/', '_')}__TO__{job.target.replace(':', '_').replace('/', '_')}"
+                lock_file_old = f"{LOG_DIR}/sync_{tag_old}.lock"
+                
+                # Prova a rimuovere il file lock con il nuovo formato
+                if os.path.exists(lock_file_new):
                     try:
-                        os.remove(lock_file)
-                        logger.info(f"Removed lock file: {lock_file}")
+                        os.remove(lock_file_new)
+                        logger.info(f"Removed lock file (new format): {lock_file_new}")
                     except Exception as e:
-                        logger.error(f"Error removing lock file: {str(e)}")
+                        logger.error(f"Error removing lock file (new format): {str(e)}")
+                
+                # Prova a rimuovere anche se esiste il file lock con il vecchio formato
+                if os.path.exists(lock_file_old):
+                    try:
+                        os.remove(lock_file_old)
+                        logger.info(f"Removed lock file (old format): {lock_file_old}")
+                    except Exception as e:
+                        logger.error(f"Error removing lock file (old format): {str(e)}")
+                
+                # Prova anche a terminare eventuali processi rclone associati
+                try:
+                    job_key = f"{job.source}|{job.target}"
+                    process_terminated = False
+                    
+                    # Verifica nei job attivi
+                    if job_key in rclone_handler.active_jobs:
+                        try:
+                            process = rclone_handler.active_jobs[job_key]['process']
+                            if process.poll() is None:  # Process is still running
+                                process.terminate()
+                                process_terminated = True
+                                logger.info(f"Force cleanup: terminated process for job {job.id}")
+                        except Exception as e:
+                            logger.error(f"Error terminating process during force cleanup: {str(e)}")
+                    
+                    # Se non abbiamo terminato il processo, cerca processi rclone con gli stessi parametri
+                    if not process_terminated:
+                        try:
+                            import subprocess
+                            import re
+                            
+                            ps_output = subprocess.check_output(['ps', 'aux'], universal_newlines=True)
+                            lines = ps_output.split('\n')
+                            
+                            source_pattern = re.escape(job.source)
+                            target_pattern = re.escape(job.target)
+                            
+                            # Utilizziamo un filtro ancora più restrittivo: vogliamo solo i veri comandi rclone sync/copy/etc
+                            rclone_lines = []
+                            for line in lines:
+                                parts = line.split()
+                                if len(parts) > 10:
+                                    command = ' '.join(parts[10:])
+                                    
+                                    # Verifichiamo che sia un vero comando rclone (non un comando che contiene la parola rclone)
+                                    is_rclone_command = False
+                                    
+                                    # Caso 1: Il comando è esattamente 'rclone'
+                                    if parts[10] == 'rclone' and len(parts) > 11:
+                                        # Verifichiamo che ci sia un'operazione rclone valida (sync, copy, check, etc.)
+                                        rclone_operations = ['sync', 'copy', 'move', 'check', 'ls', 'lsd', 'lsl', 'md5sum', 'sha1sum', 'size', 'delete', 'mkdir', 'rmdir', 'rcat', 'cat', 'copyto', 'moveto', 'copyurl', 'mount', 'about', 'cleanup', 'dedupe', 'version', 'touch', 'serve']
+                                        if parts[11] in rclone_operations:
+                                            is_rclone_command = True
+                                            
+                                    # Caso 2: Il comando è un percorso a rclone (come /usr/bin/rclone)
+                                    elif ('/rclone' in parts[10]) and len(parts) > 11:
+                                        if parts[10].endswith('/rclone') and parts[11] in ['sync', 'copy', 'move', 'check', 'ls', 'lsd', 'lsl', 'md5sum', 'sha1sum', 'size', 'delete', 'mkdir', 'rmdir', 'rcat', 'cat', 'copyto', 'moveto', 'copyurl', 'mount', 'about', 'cleanup', 'dedupe', 'version', 'touch', 'serve']:
+                                            is_rclone_command = True
+                                    
+                                    if is_rclone_command:
+                                        rclone_lines.append(line)
+                            
+                            # Ora cerchiamo solo nei processi rclone reali
+                            pattern = f"{source_pattern}.*{target_pattern}"
+                            for line in rclone_lines:
+                                if re.search(pattern, line):
+                                    parts = line.split()
+                                    if len(parts) > 1:
+                                        try:
+                                            pid = int(parts[1])
+                                            import signal
+                                            # Log aggiuntivo per debug
+                                            logger.info(f"Found potential rclone process to terminate: PID={pid}, command: {' '.join(parts[10:60])}")
+                                            os.kill(pid, signal.SIGTERM)
+                                            logger.info(f"Force cleanup: found and terminated rclone process with PID {pid} for job {job.id}")
+                                        except Exception as e:
+                                            logger.error(f"Error terminating found process during force cleanup: {str(e)}")
+                        except Exception as e:
+                            logger.error(f"Error searching for orphaned rclone processes during force cleanup: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Error during process termination in force cleanup: {str(e)}")
                 
                 logger.info(f"Force cleaned job: {job.id} {job.source} → {job.target}")
                 cleaned_count += 1
+                cleaned_jobs.append(job)
             
-            # Commit the changes
+            # Commit delle modifiche ai job history
             db.session.commit()
-            return cleaned_count
             
+            # Ora che abbiamo pulito i job, aggiorniamo le date di prossima esecuzione
+            # per tutti i job pianificati che potrebbero corrispondere ai job terminati
+            if cleaned_jobs:
+                try:
+                    # Ottieni tutti i job pianificati
+                    scheduled_jobs = ScheduledJob.query.filter_by(enabled=True).all()
+                    updated_schedules = 0
+                    
+                    # Aggiorna la data di prossima esecuzione per i job pianificati
+                    # che corrispondono ai job che abbiamo appena pulito
+                    for scheduled_job in scheduled_jobs:
+                        for cleaned_job in cleaned_jobs:
+                            # Verifica se questo job pianificato corrisponde a un job pulito
+                            if (scheduled_job.source.strip() == cleaned_job.source.strip() and 
+                                scheduled_job.target.strip() == cleaned_job.target.strip()):
+                                
+                                # Verifica se la data di prossima esecuzione è nel passato
+                                now = datetime.now()
+                                if scheduled_job.next_run is None or scheduled_job.next_run < now:
+                                    try:
+                                        # Importa la classe JobScheduler per usare il metodo statico
+                                        from utils.scheduler import JobScheduler
+                                        # Calcola la prossima data di esecuzione
+                                        next_run = JobScheduler.calculate_next_run_static(scheduled_job.cron_expression, now)
+                                        
+                                        # Aggiorna la data di prossima esecuzione
+                                        scheduled_job.next_run = next_run
+                                        updated_schedules += 1
+                                        logger.info(f"Updated next_run time for scheduled job {scheduled_job.id} "
+                                                    f"({scheduled_job.name}) to {next_run} after stale job cleanup")
+                                    except Exception as e:
+                                        logger.error(f"Error updating next_run for scheduled job {scheduled_job.id}: {str(e)}")
+                    
+                    # Commit delle modifiche ai job pianificati
+                    if updated_schedules > 0:
+                        db.session.commit()
+                        logger.info(f"Updated {updated_schedules} scheduled jobs after cleaning stale jobs")
+                
+                except Exception as e:
+                    logger.error(f"Error updating scheduled jobs next_run times: {str(e)}")
+            
+            return cleaned_count
     except Exception as e:
         logger.error(f"Error in force cleanup: {str(e)}")
         return 0
@@ -253,15 +464,17 @@ def clean_path_whitespace():
 # Esegui il controllo all'avvio
 with app.app_context():
     db.create_all()
-    check_orphaned_jobs()  # Controllo iniziale all'avvio
+    # Usa only_update_inactive=True e inactive_hours=3 per non terminare job attivi durante l'avvio
+    # ma considerare stale quelli con log fermo da più di 3 ore
+    check_orphaned_jobs(only_update_inactive=True, inactive_hours=3)  # Controllo iniziale all'avvio
     clean_path_whitespace()  # Pulizia spazi nei percorsi
 
 
 @app.route("/")
 def index():
     """Home page with options to create new jobs or run existing ones"""
-    # Controlla e aggiorna eventuali job orfani prima di mostrare la pagina
-    check_orphaned_jobs()
+    # NON chiama check_orphaned_jobs() che potrebbe terminare job validi
+    # I job saranno aggiornati in modo sicuro dall'API AJAX che usa only_stale_jobs=True
     active_jobs = rclone_handler.get_active_jobs()
     
     # Controllo aggiuntivo: verifica se esistono job in stato "running" nel DB 
@@ -336,8 +549,8 @@ def index():
 @app.route("/jobs")
 def jobs():
     """Page for creating new sync jobs and viewing/running configured jobs"""
-    # Aggiorna lo stato dei job pendenti
-    check_orphaned_jobs()
+    # NON chiama check_orphaned_jobs() che potrebbe terminare job validi
+    # Gli stati dei job vengono aggiornati tramite le API AJAX con il parametro only_stale_jobs=True
     configured_jobs = rclone_handler.get_configured_jobs()
     return render_template("jobs.html", configured_jobs=configured_jobs)
 
@@ -420,8 +633,8 @@ def create_job():
 @app.route("/history")
 def history():
     """View history of executed jobs with filtering and pagination"""
-    # Controlla e aggiorna eventuali job orfani
-    check_orphaned_jobs()
+    # NON chiama check_orphaned_jobs() che potrebbe terminare job validi
+    # Gli stati dei job vengono aggiornati tramite le API AJAX con il parametro only_stale_jobs=True
     
     # Parametri di filtro
     page = request.args.get('page', 1, type=int)
@@ -560,13 +773,84 @@ def log_file(filename):
 @app.route("/api/active_jobs")
 def api_active_jobs():
     """Restituisce i job attivi in formato JSON per aggiornamenti AJAX"""
+    # Esegui una pulizia forzata SOLO dei job stale/inattivi (non di quelli realmente attivi)
+    # Usiamo solo_stale_jobs=True per assicurarci di non interrompere job validi
+    # I job con log inattivo da più di 3 ore vengono considerati stale e terminati
+    force_cleanup_jobs(only_stale_jobs=True, inactive_hours=3)
+    
     # Controlla e aggiorna eventuali job orfani prima di restituire i dati
-    check_orphaned_jobs()
+    # Usiamo only_update_inactive=True per assicurarci di non interrompere job ancora attivi
+    # I job con log inattivo da più di 3 ore vengono considerati stale e terminati
+    check_orphaned_jobs(only_update_inactive=True, inactive_hours=3)
+    
+    # Verifica processi attivi sul sistema ma non tracciati
+    active_processes = []
+    untracked_count = 0
+    try:
+        import subprocess
+        import re
+        # Ottieni i processi rclone attivi
+        ps_output = subprocess.check_output(['ps', 'aux'], universal_newlines=True)
+        
+        # Migliorato il filtro per evitare falsi positivi
+        # Ora cerchiamo solo i processi con il comando rclone effettivo, non quelli che lo contengono in qualche parametro
+        rclone_processes = []
+        for line in ps_output.split('\n'):
+            parts = line.split()
+            if len(parts) > 10:
+                command = ' '.join(parts[10:])
+                # Verifichiamo che sia un vero comando rclone (non un comando che contiene la parola rclone)
+                is_rclone_command = False
+                
+                # Caso 1: Il comando è esattamente 'rclone'
+                if parts[10] == 'rclone' and len(parts) > 11:
+                    # Verifichiamo che ci sia un'operazione rclone valida (sync, copy, check, etc.)
+                    rclone_operations = ['sync', 'copy', 'move', 'check', 'ls', 'lsd', 'lsl', 'md5sum', 'sha1sum', 'size', 'delete', 'mkdir', 'rmdir', 'rcat', 'cat', 'copyto', 'moveto', 'copyurl', 'mount', 'about', 'cleanup', 'dedupe', 'version', 'touch', 'serve']
+                    if parts[11] in rclone_operations:
+                        is_rclone_command = True
+                        
+                # Caso 2: Il comando è un percorso a rclone (come /usr/bin/rclone)
+                elif ('/rclone' in parts[10]) and len(parts) > 11:
+                    if parts[10].endswith('/rclone') and parts[11] in ['sync', 'copy', 'move', 'check', 'ls', 'lsd', 'lsl', 'md5sum', 'sha1sum', 'size', 'delete', 'mkdir', 'rmdir', 'rcat', 'cat', 'copyto', 'moveto', 'copyurl', 'mount', 'about', 'cleanup', 'dedupe', 'version', 'touch', 'serve']:
+                        is_rclone_command = True
+                
+                if is_rclone_command:
+                    rclone_processes.append(line)
+        
+        # Stampa info diagnostiche sui processi rclone trovati
+        if rclone_processes:
+            logger.info(f"Found {len(rclone_processes)} active rclone processes:")
+            for i, proc in enumerate(rclone_processes):
+                parts = proc.split()
+                if len(parts) > 10:
+                    pid = parts[1]
+                    command = ' '.join(parts[10:])
+                    logger.info(f"  - Process {i+1}: PID={pid}, CMD={command[:100]}...")
+                    active_processes.append(pid)
+                    
+                    # Verifica origine della sessione per diagnosticare job duplicati
+                    # Estrai i parametri per tracciare meglio l'origine
+                    if 'source' in command and 'target' in command:
+                        logger.debug(f"Analyzing process {pid} command: {command[:150]}")
+            
+            # Log del numero totale di processi rclone attivi            
+            logger.info(f"Total active rclone processes: {len(active_processes)}")
+    except Exception as e:
+        logger.error(f"Error checking rclone processes: {str(e)}")
+    
+    # Ottieni i job attivi dal gestore rclone
     active_jobs = rclone_handler.get_active_jobs()
     
     # Formatta i dati per il client
     formatted_jobs = []
+    tracked_pids = set()
+    
     for job in active_jobs:
+        # Estrai PID se disponibile
+        pid = job.get('pid')
+        if pid:
+            tracked_pids.add(str(pid))
+            
         formatted_job = {
             'source': job.get('source'),
             'target': job.get('target'),
@@ -575,12 +859,20 @@ def api_active_jobs():
             'duration_formatted': format_duration(job.get('duration')),
             'dry_run': job.get('dry_run'),
             'log_file': job.get('log_file'),
-            'from_scheduler': job.get('from_scheduler', False)
+            'from_scheduler': job.get('from_scheduler', False),
+            'recovered': job.get('recovered', False),  # Aggiungiamo il flag per i processi recuperati
+            'pid': pid  # Aggiungiamo il PID se disponibile
         }
         formatted_jobs.append(formatted_job)
     
+    # Controlla se ci sono processi non tracciati
+    untracked_pids = [pid for pid in active_processes if pid not in tracked_pids]
+    if untracked_pids:
+        logger.warning(f"Found {len(untracked_pids)} untracked rclone processes: {', '.join(untracked_pids)}")
+    
     return jsonify({
         "active_jobs": formatted_jobs,
+        "untracked_processes": len(untracked_pids),
         "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     })
 
@@ -641,7 +933,7 @@ def job_status(job_id):
     # Restituisci anche la durata aggiornata e altre informazioni utili
     return jsonify({
         "status": status,
-        "duration": job.duration_formatted(),
+        "duration": job.duration_formatted,  # Questa è una property, non un metodo
         "end_time": job.end_time.strftime('%Y-%m-%d %H:%M:%S') if job.end_time else None
     })
 
@@ -654,7 +946,8 @@ def clean_all_jobs():
     clean_paths_too = request.args.get("clean_paths") == "1"
     
     try:
-        cleaned_count = force_cleanup_jobs()
+        # Per il comando esplicito di pulizia, forziamo la pulizia di TUTTI i job (anche quelli attivi)
+        cleaned_count = force_cleanup_jobs(only_stale_jobs=False)
         
         if clean_paths_too:
             # Esegui la pulizia degli spazi nei percorsi
@@ -707,32 +1000,144 @@ def cancel_job(job_id):
                 flash(f"Job {job_id} is not running", "warning")
                 return redirect(request.referrer or url_for("history"))
             
-            # Remove any lock files
-            tag = f"{job.source.replace(':', '_').replace('/', '_')}__TO__{job.target.replace(':', '_').replace('/', '_')}"
-            lock_file = f"{LOG_DIR}/sync_{tag}.lock"
+            # Remove any lock files - prova entrambi i formati di tag
+            # Prima prova con il nuovo formato dal metodo _generate_tag
+            tag_new = rclone_handler._generate_tag(job.source, job.target)
+            lock_file_new = f"{LOG_DIR}/sync_{tag_new}.lock"
             
-            if os.path.exists(lock_file):
+            # Poi il vecchio formato
+            tag_old = f"{job.source.replace(':', '_').replace('/', '_')}__TO__{job.target.replace(':', '_').replace('/', '_')}"
+            lock_file_old = f"{LOG_DIR}/sync_{tag_old}.lock"
+            
+            # Prova a rimuovere il file lock con il nuovo formato
+            if os.path.exists(lock_file_new):
                 try:
-                    os.remove(lock_file)
-                    logger.info(f"Removed lock file for job {job_id}: {lock_file}")
+                    os.remove(lock_file_new)
+                    logger.info(f"Removed lock file (new format) for job {job_id}: {lock_file_new}")
                 except Exception as e:
-                    logger.error(f"Error removing lock file: {str(e)}")
+                    logger.error(f"Error removing lock file (new format): {str(e)}")
+            
+            # Prova a rimuovere anche se esiste il file lock con il vecchio formato
+            if os.path.exists(lock_file_old):
+                try:
+                    os.remove(lock_file_old)
+                    logger.info(f"Removed lock file (old format) for job {job_id}: {lock_file_old}")
+                except Exception as e:
+                    logger.error(f"Error removing lock file (old format): {str(e)}")
             
             # Update job status
             job.status = "cancelled"
             job.end_time = datetime.now()
             db.session.commit()
             
-            # Also check if the job is in active_jobs and try to terminate it
+            # FASE 1: Check if the job is in active_jobs and try to terminate it
             job_key = f"{job.source}|{job.target}"
+            process_terminated = False
+            
             if job_key in rclone_handler.active_jobs:
                 try:
                     process = rclone_handler.active_jobs[job_key]['process']
                     if process.poll() is None:  # Process is still running
                         process.terminate()
-                        logger.info(f"Process for job {job_id} terminated")
+                        process_terminated = True
+                        logger.info(f"Process for job {job_id} terminated from active_jobs")
                 except Exception as e:
-                    logger.error(f"Error terminating process: {str(e)}")
+                    logger.error(f"Error terminating process from active_jobs: {str(e)}")
+            
+            # FASE 2: Se non abbiamo terminato il processo, cerca di trovarlo tramite il PID salvato nel file di lock
+            if not process_terminated:
+                # Cerca di leggere il PID dal file di lock, se salvato
+                pid = None
+                lock_file_content = None
+                
+                # Prima prova a leggere dal file di lock nuovo formato
+                try:
+                    if os.path.exists(f"{lock_file_new}.bak"):  # Cerca una copia backup
+                        with open(f"{lock_file_new}.bak", 'r') as f:
+                            lock_file_content = f.read().strip()
+                except Exception:
+                    pass
+                
+                # Se non abbiamo trovato, prova con il vecchio formato
+                if not lock_file_content:
+                    try:
+                        if os.path.exists(f"{lock_file_old}.bak"):  # Cerca una copia backup
+                            with open(f"{lock_file_old}.bak", 'r') as f:
+                                lock_file_content = f.read().strip()
+                    except Exception:
+                        pass
+                
+                # Se abbiamo trovato il contenuto, estrai il PID
+                if lock_file_content and lock_file_content.isdigit():
+                    pid = int(lock_file_content)
+                    
+                    # Prova a terminare il processo con il PID
+                    try:
+                        import signal
+                        os.kill(pid, signal.SIGTERM)
+                        logger.info(f"Process with PID {pid} for job {job_id} terminated using OS kill")
+                        process_terminated = True
+                    except ProcessLookupError:
+                        logger.info(f"Process with PID {pid} for job {job_id} already terminated")
+                    except Exception as e:
+                        logger.error(f"Error terminating process with PID {pid}: {str(e)}")
+            
+            # FASE 3: Ultima risorsa - cerca tutti i processi rclone in esecuzione con gli stessi parametri
+            if not process_terminated:
+                try:
+                    import subprocess
+                    import re
+                    
+                    # Stessa tecnica usata nella funzione _find_orphaned_processes
+                    ps_output = subprocess.check_output(['ps', 'aux'], universal_newlines=True)
+                    lines = ps_output.split('\n')
+                    
+                    # Crea pattern per trovare comandi rclone con lo stesso source e target
+                    source_pattern = re.escape(job.source)
+                    target_pattern = re.escape(job.target)
+                    
+                    # Utilizziamo un filtro ancora più restrittivo: vogliamo solo i veri comandi rclone sync/copy/etc
+                    rclone_lines = []
+                    for line in lines:
+                        parts = line.split()
+                        if len(parts) > 10:
+                            command = ' '.join(parts[10:])
+                            
+                            # Verifichiamo che sia un vero comando rclone (non un comando che contiene la parola rclone)
+                            is_rclone_command = False
+                            
+                            # Caso 1: Il comando è esattamente 'rclone'
+                            if parts[10] == 'rclone' and len(parts) > 11:
+                                # Verifichiamo che ci sia un'operazione rclone valida (sync, copy, check, etc.)
+                                rclone_operations = ['sync', 'copy', 'move', 'check', 'ls', 'lsd', 'lsl', 'md5sum', 'sha1sum', 'size', 'delete', 'mkdir', 'rmdir', 'rcat', 'cat', 'copyto', 'moveto', 'copyurl', 'mount', 'about', 'cleanup', 'dedupe', 'version', 'touch', 'serve']
+                                if parts[11] in rclone_operations:
+                                    is_rclone_command = True
+                                    
+                            # Caso 2: Il comando è un percorso a rclone (come /usr/bin/rclone)
+                            elif ('/rclone' in parts[10]) and len(parts) > 11:
+                                if parts[10].endswith('/rclone') and parts[11] in ['sync', 'copy', 'move', 'check', 'ls', 'lsd', 'lsl', 'md5sum', 'sha1sum', 'size', 'delete', 'mkdir', 'rmdir', 'rcat', 'cat', 'copyto', 'moveto', 'copyurl', 'mount', 'about', 'cleanup', 'dedupe', 'version', 'touch', 'serve']:
+                                    is_rclone_command = True
+                            
+                            if is_rclone_command:
+                                rclone_lines.append(line)
+                    
+                    # Cerca processi che corrispondono
+                    pattern = f"{source_pattern}.*{target_pattern}"
+                    for line in rclone_lines:
+                        if re.search(pattern, line):
+                            # Estrai il PID
+                            parts = line.split()
+                            if len(parts) > 1:
+                                try:
+                                    pid = int(parts[1])
+                                    import signal
+                                    os.kill(pid, signal.SIGTERM)
+                                    logger.info(f"Found and terminated orphaned rclone process with PID {pid} for job {job_id}")
+                                    process_terminated = True
+                                except Exception as e:
+                                    logger.error(f"Error terminating found process: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Error searching for orphaned rclone processes: {str(e)}")
             
             flash(f"Job {job_id} cancelled", "success")
         
@@ -796,6 +1201,48 @@ def save_main_config():
 @app.route("/schedule")
 def schedule():
     """View and manage scheduled jobs"""
+    
+    # Prima controlla se ci sono job orfani/running reali da aggiornare
+    check_orphaned_jobs()
+    
+    # Quando accediamo alla pagina di pianificazione, verifichiamo anche lo stato attuale
+    # dei job schedulati e correggiamo eventuali riferimenti obsoleti
+    try:
+        # Cerca job schedulati con un job attivo corrispondente
+        jobs = ScheduledJob.query.all()
+        now = datetime.now()
+        
+        for job in jobs:
+            # Verifica se questo job ha un processo attivo corrispondente
+            if rclone_handler.is_job_running(job.source, job.target):
+                # Cerca il processo reale e ottieni il suo start time reale
+                running_jobs = SyncJobHistory.query.filter_by(
+                    source=job.source, 
+                    target=job.target,
+                    status="running"
+                ).all()
+                
+                if running_jobs:
+                    # Usa lo stesso start time del job corrente nella history
+                    # Così sia la pagina history che schedule mostreranno lo stesso orario
+                    job.last_run = running_jobs[0].start_time
+                    
+                    # Assicurati che next_run sia aggiornato correttamente
+                    # (dovrebbe essere almeno successivo alla fine prevista di questo job)
+                    # Calcola un'ora di esecuzione stimata (minimo 30 minuti, massimo 12 ore)
+                    estimated_duration = 1800  # 30 minuti in secondi
+                    
+                    # Aggiorna il "next run" a dopo l'ora stimata di completamento + 5 minuti buffer
+                    next_time = now + timedelta(seconds=(estimated_duration + 300))
+                    job.next_run = job_scheduler._calculate_next_run(job.cron_expression, next_time)
+                    
+                    # Salva le modifiche
+                    db.session.commit()
+                    logger.info(f"Job schedulato ID {job.id}: aggiornato last_run e next_run per job attivo")
+    except Exception as e:
+        logger.error(f"Errore durante l'aggiornamento degli orari dei job schedulati: {str(e)}")
+    
+    # Ottiene il sommario aggiornato
     scheduled_jobs = job_scheduler.get_schedule_summary()
     return render_template("schedule.html", scheduled_jobs=scheduled_jobs)
 

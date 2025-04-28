@@ -2,7 +2,7 @@
 
 {% block content %}
 <div class="card">
-    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
         <h3 class="mb-0">
             <i class="fas fa-history"></i> Job History
         </h3>
@@ -346,68 +346,90 @@
         
         // Funzione per aggiornare i job in esecuzione senza ricaricare la pagina
         function refreshRunningJobs() {
-            document.querySelectorAll('.job-row').forEach(row => {
+            // Otteniamo tutti i job attualmente marcati come "Running"
+            const runningJobRows = Array.from(document.querySelectorAll('.job-row')).filter(row => {
+                const statusBadge = row.querySelector('.job-status .badge');
+                return statusBadge && statusBadge.textContent === 'Running';
+            });
+            
+            // Se non ci sono job in esecuzione, aggiorniamo solo l'orario
+            if (runningJobRows.length === 0) {
+                updateLastUpdateTime();
+                return;
+            }
+            
+            // Aggiorniamo lo stato di ciascun job in esecuzione
+            const promises = runningJobRows.map(row => {
                 const jobId = row.getAttribute('data-job-id');
                 const statusBadge = row.querySelector('.job-status .badge');
                 const durationCell = row.querySelector('.job-duration');
                 const actionsCell = row.querySelector('td:last-child');
                 
-                if (statusBadge && statusBadge.textContent === 'Running') {
-                    // Update job status
-                    fetch(`/job_status/${jobId}`)
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.status !== 'running') {
-                                // Aggiorna la classe della riga
-                                row.classList.remove('table-info');
-                                if (data.status === 'completed') {
-                                    row.classList.add('table-success');
-                                    statusBadge.className = 'badge bg-success';
-                                    statusBadge.textContent = 'Completed';
-                                } else if (data.status === 'error') {
-                                    row.classList.add('table-danger');
-                                    statusBadge.className = 'badge bg-danger';
-                                    statusBadge.textContent = 'Error';
-                                } else {
-                                    statusBadge.className = 'badge bg-secondary';
-                                    statusBadge.textContent = data.status;
-                                }
-                                
-                                // Aggiorna la durata
-                                if (data.duration) {
-                                    durationCell.textContent = data.duration;
-                                }
-                                
-                                // Rimuovi il pulsante di annullamento
-                                const cancelButton = actionsCell.querySelector('form');
-                                if (cancelButton) {
-                                    cancelButton.remove();
-                                }
+                // Fetch per ottenere lo stato aggiornato
+                return fetch(`/job_status/${jobId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status !== 'running') {
+                            // Il job è terminato, aggiorna la UI
+                            row.classList.remove('table-info');
+                            
+                            if (data.status === 'completed') {
+                                row.classList.add('table-success');
+                                statusBadge.className = 'badge bg-success';
+                                statusBadge.textContent = 'Completed';
+                            } else if (data.status === 'error') {
+                                row.classList.add('table-danger');
+                                statusBadge.className = 'badge bg-danger';
+                                statusBadge.textContent = 'Error';
                             } else {
-                                // Update duration in real-time
-                                const startTimeStr = row.querySelector('td:nth-child(4)').textContent.trim();
-                                const startTime = new Date(startTimeStr);
-                                const now = new Date();
-                                const durationSecs = (now - startTime) / 1000;
-                                
-                                let formattedDuration;
-                                if (durationSecs < 60) {
-                                    formattedDuration = durationSecs.toFixed(1) + 's';
-                                } else if (durationSecs < 3600) {
-                                    formattedDuration = (durationSecs / 60).toFixed(1) + 'm';
-                                } else {
-                                    formattedDuration = (durationSecs / 3600).toFixed(1) + 'h';
-                                }
-                                
-                                durationCell.textContent = formattedDuration;
+                                statusBadge.className = 'badge bg-secondary';
+                                statusBadge.textContent = data.status;
                             }
-                        })
-                        .catch(error => console.error('Error updating job status:', error));
-                }
+                            
+                            // Aggiorna la durata finale
+                            if (data.duration) {
+                                durationCell.textContent = data.duration;
+                            }
+                            
+                            // Rimuovi il pulsante di annullamento perché il job è già terminato
+                            const cancelButton = actionsCell.querySelector('form');
+                            if (cancelButton) {
+                                cancelButton.remove();
+                            }
+                            
+                            return { jobId, status: 'completed', row };
+                        } else {
+                            // Il job è ancora in esecuzione, aggiorniamo solo la durata stimata
+                            const startTimeStr = row.querySelector('td:nth-child(4)').textContent.trim();
+                            const startTime = new Date(startTimeStr);
+                            const now = new Date();
+                            const durationSecs = (now - startTime) / 1000;
+                            
+                            let formattedDuration;
+                            if (durationSecs < 60) {
+                                formattedDuration = durationSecs.toFixed(1) + 's';
+                            } else if (durationSecs < 3600) {
+                                formattedDuration = (durationSecs / 60).toFixed(1) + 'm';
+                            } else {
+                                formattedDuration = (durationSecs / 3600).toFixed(1) + 'h';
+                            }
+                            
+                            durationCell.textContent = formattedDuration;
+                            
+                            return { jobId, status: 'running', row };
+                        }
+                    })
+                    .catch(error => {
+                        console.error(`Error updating job ${jobId} status:`, error);
+                        return { jobId, status: 'error', row };
+                    });
             });
             
-            // Aggiorna l'orario di ultimo aggiornamento
-            updateLastUpdateTime();
+            // Attendiamo il completamento di tutte le fetch
+            Promise.all(promises).then(() => {
+                // Aggiorna l'orario dell'ultimo aggiornamento
+                updateLastUpdateTime();
+            });
         }
         
         // Auto-update job status for running jobs
@@ -420,4 +442,3 @@
     });
 </script>
 {% endblock %}
-

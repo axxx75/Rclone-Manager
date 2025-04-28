@@ -42,8 +42,26 @@ def cleanup_sync_lock_files():
             # Verifica l'età del file
             file_age = time.time() - os.path.getmtime(lock_file)
             
-            # Se il file è più vecchio di 1 ora (3600 secondi), rimuovilo
-            if file_age > 3600:
+            # Prova a trovare il file di log corrispondente
+            log_file = lock_file.replace(".lock", ".log")
+            is_stale = False
+            
+            if os.path.exists(log_file):
+                # Verifica se il file di log è fermo da più di 6 ore
+                log_age = time.time() - os.path.getmtime(log_file)
+                
+                # Considera stale solo se entrambi i file sono fermi da più di 6 ore
+                if log_age > 21600 and file_age > 21600:  # 6 ore = 21600 secondi
+                    logger.warning(f"Job considerato stale - file di log ({log_age:.1f}s) e lock ({file_age:.1f}s) fermi da più di 6 ore")
+                    is_stale = True
+            else:
+                # Se non c'è file di log, verifica solo il lock file
+                if file_age > 21600:  # 6 ore = 21600 secondi
+                    logger.warning(f"Job considerato stale - lock file fermo da più di 6 ore: {file_age:.1f}s")
+                    is_stale = True
+                    
+            # Rimuovi il lock file solo se considerato stale
+            if is_stale:
                 os.remove(lock_file)
                 logger.info(f"Rimozione file di lock stale: {os.path.basename(lock_file)} (età: {file_age:.1f}s)")
         except Exception as e:
