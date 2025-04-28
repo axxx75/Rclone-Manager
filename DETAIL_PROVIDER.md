@@ -1,71 +1,90 @@
-**Provider più comuni**
+# Rclone Configuration Guide for Personal Cloud Services
 
-1. Google Drive
+This guide explains how to configure `rclone.conf` for common personal cloud storage services, including tips on obtaining required credentials (Client ID, Client Secret, and Token).
 
-    Dove registrarsi:
-   
-      Google Cloud Console
-    Procedura:
-   
-      Crea un progetto.
-      Abilita Google Drive API.
-      Vai in APIs & Services > Credentials.
-      Crea OAuth 2.0 Client ID → Tipo: Desktop App.
-    Ti darà:
-   
-      client_id
-      client_secret
-    Token generation:
-      Quando configuri rclone (rclone config), lui ti guiderà per aprire un URL di autorizzazione → autorizzi → copia il codice → si genera il token automaticamente.
+---
 
-3. Dropbox
+## Supported Cloud Services
 
-    Dove registrarsi: Dropbox App Console
-   
-    Procedura:
-      Crea una nuova app:
-      API: Scoped Access
-      Type: Full Dropbox o App Folder
-   
-    Ti darà:
-      client_id (App key)
-      client_secret (App secret)
-   
-    Token generation:
-      Idem: rclone config ti farà aprire il link di autorizzazione → autorizzi → genera token.
+### 1. Google Drive (`gdrive`)
+- **Type:** `drive`
+- **Requirements:**  
+  - Client ID and Client Secret (recommended, but optional)
+  - OAuth Token
 
-5. OneDrive (Microsoft)
+- **Notes:**
+  - If you transfer more than **750 GB/day**, using your own Client ID is strongly recommended.
+  - You can create a Google OAuth App at [Google Developer Console](https://console.developers.google.com/).
 
-    Dove registrarsi: Microsoft Azure Portal
-   
-    Procedura:
-       Azure Active Directory → App registrations → New registration
-       Nome: quello che vuoi
-       Redirect URI: http://localhost:53682/
-   
-    Crea app → prendi:
-      client_id
-      Importante: Genera client secret manualmente in "Certificates & Secrets" → "New client secret"
-   
-    Token generation:
-      Sempre via rclone config — autorizzi la tua app.
+---
 
-7. Mega.nz
+### 2. Google Photos (`gphotos`)
+- **Type:** `google photos`
+- **Requirements:**  
+  - OAuth Token
 
-    Non serve client_id e client_secret.
-    Usa username/password e genera token da solo.
+- **Notes:**
+  - Only suitable for managing photos and videos.
+  - File uploads may be subject to Google's automatic compression policies.
+  - Some API limitations exist for large datasets.
 
-8. S3 (Amazon AWS / MinIO ecc.)
+---
 
-    Dove registrarsi: AWS Management Console
-   
-    Procedura:
-      IAM → Users → Create new user
-      Permissions: Access to S3
-   
-    Ti dà:
-      AWS_ACCESS_KEY_ID → simile a client_id
-      AWS_SECRET_ACCESS_KEY → simile a client_secret
-   
-   Token generation:
-      Non serve token separato: firmi le richieste direttamente.
+### 3. Amazon Photos (`amazon_photos`)
+- **Type:** `amazon cloud drive`
+- **Requirements:**  
+  - Client ID and Client Secret
+  - OAuth Token
+
+- **Notes:**
+  - Amazon Drive service was discontinued, but Amazon Photos still works partially.
+  - Full support may require workarounds and manual token management.
+
+---
+
+### 4. OneDrive (`onedrive`)
+- **Type:** `onedrive`
+- **Requirements:**  
+  - Client ID and Client Secret
+  - OAuth Token
+
+- **Notes:**
+  - Works for both Personal and Business accounts.
+  - Optionally specify `drive_id` for shared drives.
+  - You can register an app at [Microsoft Azure Portal](https://portal.azure.com/).
+
+---
+
+### 5. Dropbox (`dropbox`)
+- **Type:** `dropbox`
+- **Requirements:**  
+  - Client ID and Client Secret
+  - OAuth Token
+
+- **Notes:**
+  - Easy setup.
+  - Limited to around **300 GB/day** uploads with standard free API keys.
+  - You can register an app at [Dropbox App Console](https://www.dropbox.com/developers/apps).
+
+---
+
+### 6. Mega.nz (`mega`)
+- **Type:** `mega`
+- **Requirements:**  
+  - Username (email)
+  - Password (stored encrypted)
+
+- **Notes:**
+  - Native end-to-end encryption.
+  - Uploads of large files can be slower compared to other providers.
+
+---
+
+## General Tips
+
+- **Always use `rclone config`** to automatically generate your remotes.
+- **Never manually edit tokens** unless absolutely necessary.
+- **Protect your `rclone.conf` file** as it contains sensitive authentication details.
+
+```bash
+chmod 600 ~/.config/rclone/rclone.conf
